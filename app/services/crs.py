@@ -36,6 +36,7 @@ class MeasurementCRS:
     note: str | None = None
 
 
+@lru_cache(maxsize=128)
 def crs_label(crs: CRS | None) -> str | None:
     """A readable identifier: 'EPSG:xxxx' when one can be matched, else the CRS name."""
     if crs is None:
@@ -65,8 +66,8 @@ def choose_measurement_crs(source: CRS, geometry_wgs84: BaseGeometry) -> Measure
     """Pick the CRS a single feature is measured in.
 
     - A suitable projected source CRS is used as-is: it is what the surveyor chose.
-    - Otherwise use the UTM zone of the feature's centroid (an EPSG-coded, widely
-      recognised projection with <0.1% scale error near its central meridian).
+    - Otherwise use the UTM zone of the feature's centroid: an EPSG-coded, widely
+      recognised projection whose area error stays under ~0.2% inside its own zone.
     - Fall back to a Lambert Azimuthal Equal-Area projection centred on the feature when
       it is outside UTM's latitude range or too far from the zone's central meridian.
     """
@@ -104,8 +105,13 @@ def choose_measurement_crs(source: CRS, geometry_wgs84: BaseGeometry) -> Measure
 
     epsg = (32600 if centroid.y >= 0 else 32700) + zone
     return MeasurementCRS(
-        crs=CRS.from_epsg(epsg), label=f"EPSG:{epsg}", method=MeasurementMethod.UTM, note=note
+        crs=_crs_from_epsg(epsg), label=f"EPSG:{epsg}", method=MeasurementMethod.UTM, note=note
     )
+
+
+@lru_cache(maxsize=128)
+def _crs_from_epsg(code: int) -> CRS:
+    return CRS.from_epsg(code)
 
 
 def utm_zone(longitude: float) -> int:

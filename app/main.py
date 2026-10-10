@@ -8,7 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.api import health
+from app.api import files, health
 from app.config import Settings
 from app.db import create_session_factory
 from app.errors import AppError, FileTooLargeError
@@ -47,6 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     _register_upload_size_guard(app, settings.max_upload_bytes)
     _register_exception_handlers(app)
+    app.include_router(files.router)
     app.include_router(health.router)
     return app
 
