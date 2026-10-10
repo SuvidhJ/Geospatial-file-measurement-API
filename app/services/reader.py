@@ -33,6 +33,9 @@ class Dataset:
     has_source_fids: bool
     crs_assumed: bool = False
     warnings: list[str] = field(default_factory=list)
+    # True when a null attribute means "this feature has no such field" rather than an
+    # empty value, as for KML layers stacked into one frame.
+    drop_null_properties: bool = False
 
 
 @dataclass
@@ -104,11 +107,14 @@ def read_kml(path: Path) -> Dataset:
         empty = gpd.GeoDataFrame(geometry=[], crs=WGS84)
         return Dataset(frame=empty, crs=WGS84, has_source_fids=False)
     # KML coordinates are always WGS84 lon/lat by specification (OGC KML 2.2).
+    # Stacking layers unions their columns, so each placemark picks up nulls for fields
+    # that only exist in other folders; drop_null_properties removes those again.
     combined = pd.concat(frames, ignore_index=True)
     return Dataset(
         frame=gpd.GeoDataFrame(combined, geometry="geometry", crs=WGS84),
         crs=WGS84,
         has_source_fids=False,
+        drop_null_properties=True,
     )
 
 
@@ -124,14 +130,17 @@ def _read_kml_layer(path: Path, layer: str) -> gpd.GeoDataFrame:
 def iter_features(dataset: Dataset) -> Iterator[SourceFeature]:
     frame = dataset.frame
     attributes = frame.drop(columns=frame.geometry.name).to_dict("records")
-    for index, (fid, geometry, properties) in enumerate(
+    for index, (fid, geometry, attributes_row) in enumerate(
         zip(frame.index, frame.geometry, attributes, strict=True)
     ):
+        properties = {str(key): json_safe(value) for key, value in attributes_row.items()}
+        if dataset.drop_null_properties:
+            properties = {key: value for key, value in properties.items() if value is not None}
         yield SourceFeature(
             index=index,
             source_fid=int(fid) if dataset.has_source_fids else None,
             geometry=geometry,
-            properties={str(key): json_safe(value) for key, value in properties.items()},
+            properties=properties,
         )
 
 

@@ -117,6 +117,8 @@ def test_kml_reads_every_folder_and_tags_layer(tmp_path: Path) -> None:
     assert [f.geometry.geom_type for f in features] == ["LineString", "Polygon", "Point"]
     assert features[0].properties["Name"] == "MG Road"
     assert features[0].properties["lanes"] == "4"
+    # "lanes" exists only in the Roads folder, so other placemarks must not get lanes=null.
+    assert "lanes" not in features[1].properties
     assert all(f.source_fid is None for f in features)
     assert not {"tessellate", "visibility", "timestamp"} & set(features[0].properties)
 
