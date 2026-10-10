@@ -2,7 +2,7 @@ from enum import StrEnum
 from typing import Any, Self
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models import Feature, FileStatus
 from app.services.crs import MeasurementMethod
@@ -48,6 +48,46 @@ class MeasurementRead(BaseModel):
 
 
 class FeatureMeasurement(BaseModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "index": 0,
+                    "source_fid": None,
+                    "geometry_type": "Polygon",
+                    "measured_geometry_type": "Polygon",
+                    "repaired": False,
+                    "source_crs": "EPSG:4326",
+                    "geometry_crs": "EPSG:4326",
+                    "properties": {
+                        "Name": "Survey block (1 km x 1 km)",
+                        "expected": "100 ha",
+                        "kml_layer": "Site boundary",
+                    },
+                    "geometry": None,
+                    "measurement": {
+                        "status": "measured",
+                        "reason": None,
+                        "area_m2": 1001268.01,
+                        "area_ha": 100.1268,
+                        "perimeter_m": 4002.535,
+                        "length_m": None,
+                        "length_km": None,
+                        "measurement_crs": "EPSG:32643",
+                        "method": "projected-utm",
+                        "geodesic": {
+                            "area_m2": 999982.13,
+                            "perimeter_m": 3999.964,
+                            "length_m": None,
+                        },
+                        "difference_pct": 0.1286,
+                        "warnings": [],
+                    },
+                }
+            ]
+        }
+    )
+
     index: int = Field(description="0-based position of the feature in the file.")
     source_fid: int | None = Field(description="Feature ID from the source file, if it has one.")
     geometry_type: str | None = Field(description="Geometry type as read from the file.")

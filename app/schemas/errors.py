@@ -18,8 +18,8 @@ class ErrorResponse(BaseModel):
                 {
                     "error": {
                         "code": "PROCESSING_FAILED",
-                        "message": "No .shp file found in the archive. Files found: readme.txt",
-                        "details": {"file_id": "3f2b8c1e-5d0a-4a7e-9b8e-2c4d6f8a1b3c"},
+                        "message": "No .shp file found in the archive. Files found: readme.txt.",
+                        "details": {"file_id": "8a8d93d7-e3df-497d-838f-75e475c97831"},
                     }
                 }
             ]

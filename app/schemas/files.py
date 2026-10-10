@@ -7,7 +7,26 @@ from app.models import FileFormat, FileStatus
 
 
 class FileRead(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": "56672a78-907f-4c84-a44b-80fa39ca9e26",
+                    "filename": "bengaluru_survey.kml",
+                    "format": "kml",
+                    "status": "COMPLETED",
+                    "feature_count": 5,
+                    "crs": "EPSG:4326",
+                    "crs_assumed": False,
+                    "geometry_type_counts": {"Polygon": 1, "LineString": 1, "Point": 3},
+                    "warnings": [],
+                    "error_detail": None,
+                    "created_at": "2026-10-10T19:17:48.169701Z",
+                }
+            ]
+        },
+    )
 
     id: UUID
     filename: str
