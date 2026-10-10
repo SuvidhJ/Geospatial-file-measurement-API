@@ -85,6 +85,9 @@ def test_polygon_hole_is_subtracted_whatever_its_winding_order() -> None:
 
     assert result.geodesic_area_m2 == pytest.approx(40_000 - 2_500, rel=1e-4)
     assert result.area_m2 == pytest.approx(37_500, rel=2.5e-3)
+    # Perimeter includes the hole's boundary in both the projected and geodesic values.
+    assert result.geodesic_perimeter_m == pytest.approx(800 + 200, rel=1e-4)
+    assert result.perimeter_m == pytest.approx(1000, rel=2.5e-3)
 
 
 def test_native_projected_metres_are_measured_without_reprojection() -> None:

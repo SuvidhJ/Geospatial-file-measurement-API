@@ -106,7 +106,10 @@ def geodesic_area_perimeter(geometry_wgs84: BaseGeometry) -> tuple[float, float]
     # exterior counter-clockwise and holes clockwise makes holes subtract, whatever winding
     # the source file used; abs() then removes the remaining sign convention.
     oriented = shapely.orient_polygons(geometry_wgs84)
-    area, perimeter = GEOD.geometry_area_perimeter(oriented)
+    area, _ = GEOD.geometry_area_perimeter(oriented)
+    # pyproj's polygon perimeter covers only exterior rings; the projected perimeter (shapely
+    # .length) includes holes, so sum every ring to compare like with like.
+    perimeter = sum(GEOD.geometry_length(ring) for ring in shapely.get_rings(oriented))
     return abs(area), perimeter
 
 
