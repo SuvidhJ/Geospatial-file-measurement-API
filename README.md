@@ -20,7 +20,7 @@ Main points:
   raised past a configurable threshold.
 - **Safe on untrusted uploads.** It guards against zip-slip and zip bombs and parses KML in a
   way that is safe from XXE. Size limits are enforced. Every error uses the same body shape.
-- **Tested against independent ground truth.** 106 tests. Shapes are built by walking geodesics,
+- **Tested against independent ground truth.** 108 tests. Shapes are built by walking geodesics,
   not drawn in the projection being tested.
 
 ---
@@ -392,7 +392,7 @@ app/
     processing.py    pipeline orchestration and status transitions
     results.py       read-side queries: pagination, filters, SQL summary
 scripts/make_sample_data.py   reproducible sample files
-tests/                        106 tests; fixtures are generated in tmp_path
+tests/                        108 tests; fixtures are generated in tmp_path
 ```
 
 Routes contain no logic. Services don't know about HTTP, apart from raising typed `AppError`s.

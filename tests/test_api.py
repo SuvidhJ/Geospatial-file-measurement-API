@@ -362,3 +362,28 @@ def test_delete_file_removes_record_and_storage(
     assert not (settings.upload_dir / file_id).exists()
     assert_error(client.get(f"/api/files/{file_id}/"), 404, "NOT_FOUND")
     assert_error(client.delete(f"/api/files/{file_id}/"), 404, "NOT_FOUND")
+
+
+def test_empty_kml_completes_with_warning(client: TestClient) -> None:
+    response = upload(client, "empty.kml", kml_document({}).encode())
+
+    assert response.status_code == 201
+    assert response.json()["feature_count"] == 0
+    assert response.json()["warnings"] == ["The file contains no features."]
+
+
+def test_unexpected_error_returns_500_and_marks_file_failed(
+    settings: Settings, survey_kml: bytes, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def explode(_path: Path) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("app.services.reader.read_kml", explode)
+    with TestClient(create_app(settings), raise_server_exceptions=False) as client:
+        response = upload(client, "survey.kml", survey_kml)
+        (record,) = client.get("/api/files/").json()["items"]
+
+    assert_error(response, 500, "INTERNAL_ERROR")
+    assert "boom" not in response.text
+    assert record["status"] == "FAILED"
+    assert record["error_detail"] == "An unexpected error occurred while processing the file."
