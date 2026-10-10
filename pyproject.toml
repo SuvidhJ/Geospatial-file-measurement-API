@@ -1,0 +1,16 @@
+[project]
+name = "geospatial-file-measurement-api"
+version = "1.0.0"
+description = "Upload a Shapefile or KML and get CRS-correct area and length measurements per feature."
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

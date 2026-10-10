@@ -1,0 +1,13 @@
+fastapi==0.143.0
+uvicorn==0.54.0
+pydantic==2.14.0
+pydantic-settings==2.15.0
+python-multipart==0.0.32
+sqlalchemy==2.1.4
+geopandas==1.2.0
+pandas==3.0.6
+numpy==2.4.6
+pyogrio==0.13.0
+shapely==2.2.0
+pyproj==3.7.2
+defusedxml==0.7.1
