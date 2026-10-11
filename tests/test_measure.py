@@ -187,3 +187,25 @@ def test_unknown_crs_is_skipped_not_guessed() -> None:
 
     assert result.status is MeasurementStatus.SKIPPED
     assert "Unknown CRS" in result.reason
+
+
+@pytest.mark.parametrize("lat", [-79.5, -60, -33.9, 0, 12.97, 45, 70, 83.5])
+@pytest.mark.parametrize("degrees_from_central_meridian", [-2.9, 0.0, 2.9])
+def test_utm_accuracy_holds_across_the_globe(
+    lat: float, degrees_from_central_meridian: float
+) -> None:
+    # Zone 31's central meridian is 3°E; offsets of ±2.9° reach almost to the zone edges.
+    square = geodesic_square(3.0 + degrees_from_central_meridian, lat, side_m=1000)
+
+    result = measure_in(square, WGS84)
+
+    assert result.method is MeasurementMethod.UTM
+    assert abs(result.difference_pct) < 0.25
+
+
+@pytest.mark.parametrize(("lon", "lat"), [(15, 84.5), (-120, 88.9), (60, -80.5), (0, -88.9)])
+def test_polar_accuracy_with_equal_area_fallback(lon: float, lat: float) -> None:
+    result = measure_in(geodesic_square(lon, lat, side_m=1000), WGS84)
+
+    assert result.method is MeasurementMethod.LAEA_FALLBACK
+    assert abs(result.difference_pct) < 0.01

@@ -28,6 +28,9 @@ format:
 sample-data:
 	$(PYTHON) -m scripts.make_sample_data
 
+accuracy:
+	$(PYTHON) -m scripts.accuracy_report
+
 docker-build:
 	docker build -t $(IMAGE) .
 
