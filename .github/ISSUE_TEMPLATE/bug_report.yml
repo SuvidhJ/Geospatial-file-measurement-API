@@ -1,0 +1,27 @@
+name: Bug report
+description: Something is measured wrongly, fails, or behaves unexpectedly.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Include the request, the response body and the X-Request-ID header if you have it.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      description: For a measurement, include the value you expected and how you obtained it.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Attach a minimal file if you can. Do not upload sensitive survey data.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit

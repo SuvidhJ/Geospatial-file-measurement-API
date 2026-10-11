@@ -5,3 +5,4 @@ httpx2==2.13.1
 fakeredis==2.39.0
 ruff==0.17.0
 mypy==2.4.0
+pre-commit==4.6.2

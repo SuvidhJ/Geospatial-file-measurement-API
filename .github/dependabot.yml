@@ -1,0 +1,21 @@
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      geospatial:
+        patterns: ["geopandas", "pyogrio", "shapely", "pyproj", "rasterio", "numpy", "pandas"]
+      dev-tools:
+        patterns: ["pytest*", "ruff", "mypy", "fakeredis", "httpx2", "pre-commit"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly

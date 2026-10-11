@@ -1,8 +1,16 @@
 [project]
 name = "geospatial-file-measurement-api"
 version = "1.0.0"
-description = "Upload a Shapefile or KML and get CRS-correct area and length measurements per feature."
+description = "Upload a Shapefile, KML or KMZ and get CRS-correct area, length and DEM volume measurements per feature."
+readme = "README.md"
+license = "MIT"
 requires-python = ">=3.11"
+keywords = ["gis", "geospatial", "shapefile", "kml", "crs", "fastapi", "stockpile", "volume"]
+classifiers = [
+    "Framework :: FastAPI",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: GIS",
+]
 
 [tool.ruff]
 line-length = 100

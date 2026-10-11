@@ -1,10 +1,11 @@
 PYTHON ?= python
 IMAGE ?= geospatial-measurement-api
 
-.PHONY: install run test lint typecheck check format sample-data accuracy docker-build docker-run
+.PHONY: install run test lint typecheck check format migration sample-data accuracy up down docker-build docker-run
 
 install:
 	$(PYTHON) -m pip install -r requirements-dev.txt
+	pre-commit install
 
 run:
 	$(PYTHON) -m uvicorn app.main:create_app --factory --reload
@@ -25,11 +26,20 @@ format:
 	$(PYTHON) -m ruff check --fix .
 	$(PYTHON) -m ruff format .
 
+migration:
+	$(PYTHON) -m alembic revision --autogenerate -m "$(m)"
+
 sample-data:
 	$(PYTHON) -m scripts.make_sample_data
 
 accuracy:
 	$(PYTHON) -m scripts.accuracy_report
+
+up:
+	docker compose up --build
+
+down:
+	docker compose down
 
 docker-build:
 	docker build -t $(IMAGE) .
