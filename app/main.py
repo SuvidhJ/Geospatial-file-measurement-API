@@ -81,7 +81,7 @@ def error_response(
 
 
 def _register_upload_size_guard(app: FastAPI, max_upload_bytes: int) -> None:
-    # The route can only count bytes after Starlette has already received the whole body.
+    # Routes can only count bytes after Starlette has already received the whole body.
     # Checking Content-Length here rejects honest oversized uploads before the body is read.
     @app.middleware("http")
     async def reject_oversized_uploads(

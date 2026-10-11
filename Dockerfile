@@ -1,16 +1,20 @@
+# syntax=docker/dockerfile:1
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_DEFAULT_TIMEOUT=120 \
     GEOAPI_DATA_DIR=/data
 
 WORKDIR /app
 
-# The pyogrio, shapely and pyproj wheels bundle GDAL, GEOS and PROJ, so no system
-# geospatial libraries are needed.
+# The pyogrio, shapely, pyproj and rasterio wheels bundle GDAL, GEOS and PROJ, so no system
+# geospatial libraries are needed. The cache mount keeps downloaded wheels across builds
+# without adding them to the image.
 COPY requirements.txt .
-RUN pip install -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --retries 10 -r requirements.txt
 
 COPY app ./app
 
@@ -19,7 +23,7 @@ USER appuser
 VOLUME ["/data"]
 
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
 
 CMD ["uvicorn", "app.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]

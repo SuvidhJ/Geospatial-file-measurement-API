@@ -9,3 +9,7 @@ sample_data
 .pytest_cache
 .ruff_cache
 *.md
+docs
+alembic.ini
+.pre-commit-config.yaml
+.env*
