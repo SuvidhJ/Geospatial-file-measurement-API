@@ -997,6 +997,10 @@ Problems that came up while building this, and what they taught:
 - **Screenshots find bugs that tests don't.** Browser runs showed that popups had dropped the
   feature's own attributes, and that a longer label broke the drop zone's layout because a
   `<label>` is inline by default.
+- **Only the real container proves the container.** Every test passed locally, yet the API
+  crash-looped in Docker: rasterio's Linux wheel bundles GDAL but links against the system
+  `libexpat`, which the slim base image no longer ships. The CI stack smoke test exists to catch
+  exactly this class of failure.
 - **Reproducible artefacts need fixed timestamps.** Zip entries carry modification times, so
   regenerated sample data changed on every run until the archives were written with a fixed
   date.

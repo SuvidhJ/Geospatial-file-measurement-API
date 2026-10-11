@@ -10,8 +10,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # The pyogrio, shapely, pyproj and rasterio wheels bundle GDAL, GEOS and PROJ, so no system
-# geospatial libraries are needed. The cache mount keeps downloaded wheels across builds
-# without adding them to the image.
+# geospatial libraries are needed. rasterio's wheel still links against the system libexpat,
+# which the slim base image does not include.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# The cache mount keeps downloaded wheels across builds without adding them to the image.
 COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/pip \
     pip install --retries 10 -r requirements.txt
