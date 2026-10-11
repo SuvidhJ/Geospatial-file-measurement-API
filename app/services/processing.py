@@ -85,10 +85,10 @@ def process_file(db: Session, file_id: uuid.UUID, settings: Settings) -> Uploade
         ]
     except DatasetError as exc:
         logger.info("File %s failed: %s", file_id, exc)
-        return _mark_failed(db, record, str(exc), started)
+        return mark_failed(db, record, str(exc), started)
     except Exception:
         logger.exception("Unexpected error while processing file %s", file_id)
-        _mark_failed(db, record, "An unexpected error occurred while processing the file.", started)
+        mark_failed(db, record, "An unexpected error occurred while processing the file.", started)
         raise
 
     record.features = features
@@ -174,11 +174,14 @@ def _build_feature(
     )
 
 
-def _mark_failed(db: Session, record: UploadedFile, detail: str, started: float) -> UploadedFile:
+def mark_failed(
+    db: Session, record: UploadedFile, detail: str, started: float | None = None
+) -> UploadedFile:
     db.rollback()
     record.status = FileStatus.FAILED
     record.error_detail = detail
-    record.processing_time_ms = _elapsed_ms(started)
+    if started is not None:
+        record.processing_time_ms = _elapsed_ms(started)
     db.commit()
     return record
 

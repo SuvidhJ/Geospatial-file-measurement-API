@@ -5,10 +5,14 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
+import rasterio
 from pyproj import Geod
+from rasterio.transform import from_origin
 from shapely.geometry import Polygon
 
 GEOD = Geod(ellps="WGS84")
+FIXED_ZIP_TIMESTAMP = (2024, 1, 1, 0, 0, 0)
 
 
 def write_shapefile(gdf: gpd.GeoDataFrame, directory: Path, name: str = "data") -> Path:
@@ -19,13 +23,16 @@ def write_shapefile(gdf: gpd.GeoDataFrame, directory: Path, name: str = "data") 
 
 
 def zip_files(zip_path: Path, entries: Iterable[tuple[str, Path | bytes]]) -> Path:
-    """Write a zip from (archive name, file path or raw bytes) pairs."""
+    """Write a zip from (archive name, file path or raw bytes) pairs.
+
+    Entries get a fixed timestamp so regenerating a file with the same content produces the
+    same bytes.
+    """
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for arcname, content in entries:
-            if isinstance(content, Path):
-                zf.write(content, arcname)
-            else:
-                zf.writestr(arcname, content)
+            data = content.read_bytes() if isinstance(content, Path) else content
+            entry = zipfile.ZipInfo(arcname, date_time=FIXED_ZIP_TIMESTAMP)
+            zf.writestr(entry, data, compress_type=zipfile.ZIP_DEFLATED)
     return zip_path
 
 
@@ -97,3 +104,40 @@ def kml_line(coords: Iterable[tuple[float, ...]]) -> str:
 
 def kml_point(lon: float, lat: float) -> str:
     return f"<Point><coordinates>{lon},{lat}</coordinates></Point>"
+
+
+def write_dem(
+    path: Path,
+    elevations: np.ndarray,
+    *,
+    left: float,
+    top: float,
+    cell_size: float,
+    crs: str | None = "EPSG:32643",
+    nodata: float = -9999.0,
+) -> Path:
+    """Write a single-band float32 GeoTIFF whose top-left corner is (left, top)."""
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        height=elevations.shape[0],
+        width=elevations.shape[1],
+        count=1,
+        dtype="float32",
+        crs=crs,
+        transform=from_origin(left, top, cell_size, cell_size),
+        nodata=nodata,
+        compress="deflate",
+    ) as dataset:
+        dataset.write(elevations.astype("float32"), 1)
+    return path
+
+
+def cell_centres(
+    left: float, top: float, cell_size: float, size: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """x and y of every cell centre of a size x size grid, as 2D arrays (row 0 is north)."""
+    offsets = (np.arange(size) + 0.5) * cell_size
+    xs, ys = np.meshgrid(left + offsets, top - offsets)
+    return xs, ys

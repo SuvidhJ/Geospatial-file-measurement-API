@@ -2,6 +2,8 @@
 
 import uuid
 
+from shapely.geometry import shape
+from shapely.geometry.base import BaseGeometry
 from sqlalchemy import ColumnElement, func, select
 from sqlalchemy.orm import Session
 
@@ -82,3 +84,13 @@ def _feature_filter(
     if geometry_type is not None:
         conditions.append(Feature.geometry_type == geometry_type.value)
     return conditions
+
+
+def measured_polygons(db: Session, file_id: uuid.UUID) -> list[tuple[int, BaseGeometry]]:
+    """(index, WGS84 geometry) of every polygon feature that has a measured area."""
+    stmt = (
+        select(Feature.index, Feature.geometry)
+        .where(Feature.file_id == file_id, Feature.area_m2.is_not(None))
+        .order_by(Feature.index)
+    )
+    return [(index, shape(geometry)) for index, geometry in db.execute(stmt)]

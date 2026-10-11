@@ -5,7 +5,7 @@ def test_health(client: TestClient) -> None:
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.json() == {"status": "ok", "queue": "in-process"}
 
 
 def test_unknown_route_uses_error_envelope(client: TestClient) -> None:

@@ -38,6 +38,11 @@ class FileNotReadyError(AppError):
     code = "FILE_NOT_READY"
 
 
+class QueueUnavailableError(AppError):
+    status_code = 503
+    code = "QUEUE_UNAVAILABLE"
+
+
 class ProcessingFailedError(AppError):
     status_code = 422
     code = "PROCESSING_FAILED"

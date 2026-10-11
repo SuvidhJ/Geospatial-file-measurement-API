@@ -21,7 +21,6 @@ from app.schemas.errors import ErrorBody, ErrorResponse
 
 logger = logging.getLogger(__name__)
 
-UPLOAD_PATH = "/api/files/"
 VIEWER_DIR = Path(__file__).parent / "static" / "viewer"
 # Allowance for multipart boundaries and part headers around the file bytes.
 MULTIPART_OVERHEAD_BYTES = 16 * 1024
@@ -88,7 +87,7 @@ def _register_upload_size_guard(app: FastAPI, max_upload_bytes: int) -> None:
     async def reject_oversized_uploads(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        if request.method == "POST" and request.url.path == UPLOAD_PATH:
+        if request.method == "POST":
             content_length = request.headers.get("content-length", "")
             if (
                 content_length.isdigit()

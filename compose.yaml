@@ -1,3 +1,5 @@
+# Full stack: API, Redis-backed job queue and a processing worker sharing one data volume.
+#   docker compose up --build
 services:
   api:
     build: .
@@ -7,7 +9,35 @@ services:
     volumes:
       - geoapi-data:/data
     environment:
-      GEOAPI_LOG_LEVEL: INFO
+      GEOAPI_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    image: geospatial-measurement-api
+    command: ["rq", "worker", "file-processing", "--url", "redis://redis:6379/0"]
+    volumes:
+      - geoapi-data:/data
+    environment:
+      GEOAPI_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      api:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
 
 volumes:

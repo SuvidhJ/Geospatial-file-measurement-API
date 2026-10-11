@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     max_archive_members: int = 200
     geodesic_warning_pct: float = 0.5
     log_level: str = "INFO"
+    redis_url: str | None = None
+    job_timeout_seconds: int = 600
+    max_dem_cells_per_feature: int = 25_000_000
 
     @property
     def upload_dir(self) -> Path:

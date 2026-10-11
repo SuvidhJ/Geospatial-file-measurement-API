@@ -10,4 +10,7 @@ numpy==2.4.6
 pyogrio==0.13.0
 shapely==2.2.0
 pyproj==3.7.2
+rasterio==1.4.4
 defusedxml==0.7.1
+redis==8.1.0
+rq==2.12.0

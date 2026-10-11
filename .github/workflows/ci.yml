@@ -5,8 +5,16 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  lint-and-test:
+  checks:
+    name: Lint, type-check and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,14 +28,28 @@ jobs:
       - run: make typecheck
       - run: make test
 
-  docker:
+  stack:
+    name: Docker stack smoke test
     runs-on: ubuntu-latest
-    needs: lint-and-test
+    needs: checks
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t geospatial-measurement-api .
-      - name: Smoke test the container
+      - name: Start API, Redis and worker
+        run: docker compose up -d --build --wait api redis
+      - run: docker compose up -d worker
+      - name: Synchronous upload
+        run: curl -sf -F "file=@sample_data/bengaluru_survey.kml" http://localhost:8000/api/files/
+      - name: Queued upload is completed by the worker
         run: |
-          docker run -d --name api -p 8000:8000 geospatial-measurement-api
-          for i in $(seq 1 30); do curl -sf http://localhost:8000/health && break; sleep 1; done
-          curl -sf -F "file=@sample_data/bengaluru_survey.kml" http://localhost:8000/api/files/
+          id=$(curl -sf -F "file=@sample_data/bengaluru_parcels.zip" \
+            "http://localhost:8000/api/files/?wait=false" | jq -r .id)
+          for i in $(seq 1 30); do
+            status=$(curl -sf "http://localhost:8000/api/files/$id/" | jq -r .status)
+            echo "status: $status"
+            [ "$status" = "COMPLETED" ] && exit 0
+            sleep 1
+          done
+          docker compose logs worker
+          exit 1
+      - if: always()
+        run: docker compose down -v
