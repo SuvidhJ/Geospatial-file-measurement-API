@@ -23,8 +23,9 @@ services:
     environment:
       GEOAPI_REDIS_URL: redis://redis:6379/0
     depends_on:
+      # The API applies database migrations on startup; wait for it before taking jobs.
       api:
-        condition: service_started
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
