@@ -37,6 +37,9 @@ class UploadedFile(Base):
     geometry_type_counts: Mapped[dict[str, int]] = mapped_column(JSON, default=dict)
     warnings: Mapped[list[str]] = mapped_column(JSON, default=list)
     error_detail: Mapped[str | None] = mapped_column(Text)
+    size_bytes: Mapped[int] = mapped_column(default=0)
+    sha256: Mapped[str] = mapped_column(String(64), default="")
+    processing_time_ms: Mapped[int | None]
     storage_path: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)

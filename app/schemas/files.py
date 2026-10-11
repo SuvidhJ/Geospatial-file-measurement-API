@@ -42,6 +42,13 @@ class FileRead(BaseModel):
     )
     warnings: list[str]
     error_detail: str | None = Field(description="Why processing failed, when status is FAILED.")
+    size_bytes: int = Field(description="Size of the uploaded file.")
+    sha256: str = Field(
+        description="SHA-256 of the uploaded file, for integrity and de-duplication."
+    )
+    processing_time_ms: int | None = Field(
+        description="Time spent reading and measuring the file; null until processed."
+    )
     created_at: datetime
 
     @field_validator("created_at")

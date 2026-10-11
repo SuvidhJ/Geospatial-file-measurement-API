@@ -1,3 +1,4 @@
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -387,3 +388,40 @@ def test_unexpected_error_returns_500_and_marks_file_failed(
     assert "boom" not in response.text
     assert record["status"] == "FAILED"
     assert record["error_detail"] == "An unexpected error occurred while processing the file."
+
+
+def test_file_record_has_size_hash_and_timing(client: TestClient, survey_kml: bytes) -> None:
+    file = upload(client, "survey.kml", survey_kml).json()
+
+    assert file["size_bytes"] == len(survey_kml)
+    assert file["sha256"] == hashlib.sha256(survey_kml).hexdigest()
+    assert file["processing_time_ms"] >= 0
+
+
+def test_background_upload_returns_202_then_completes(
+    client: TestClient, survey_kml: bytes
+) -> None:
+    response = client.post(
+        "/api/files/", params={"wait": "false"}, files={"file": ("survey.kml", survey_kml)}
+    )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "PENDING"
+    assert response.json()["processing_time_ms"] is None
+    # TestClient runs background tasks before returning, so the result is ready to poll.
+    record = client.get(f"/api/files/{response.json()['id']}/").json()
+    assert record["status"] == "COMPLETED"
+    assert record["feature_count"] == 5
+
+
+def test_background_failure_is_reported_through_status(client: TestClient, tmp_path: Path) -> None:
+    archive = zip_files(tmp_path / "docs.zip", [("readme.txt", b"no shapefile here")])
+
+    response = client.post(
+        "/api/files/", params={"wait": "false"}, files={"file": ("docs.zip", archive.read_bytes())}
+    )
+
+    assert response.status_code == 202
+    record = client.get(f"/api/files/{response.json()['id']}/").json()
+    assert record["status"] == "FAILED"
+    assert "No .shp file found" in record["error_detail"]

@@ -1,3 +1,4 @@
+import hashlib
 import io
 from pathlib import Path
 
@@ -37,10 +38,11 @@ def test_save_upload_enforces_size_limit_while_streaming(tmp_path: Path) -> None
         ingest.save_upload(io.BytesIO(b"x" * 101), tmp_path / "upload", max_bytes=100)
 
 
-def test_save_upload_writes_bytes(tmp_path: Path) -> None:
-    written = ingest.save_upload(io.BytesIO(b"abc"), tmp_path / "upload", max_bytes=100)
+def test_save_upload_writes_bytes_and_hashes_them(tmp_path: Path) -> None:
+    stored = ingest.save_upload(io.BytesIO(b"abc"), tmp_path / "upload", max_bytes=100)
 
-    assert written == 3
+    assert stored.size_bytes == 3
+    assert stored.sha256 == hashlib.sha256(b"abc").hexdigest()
     assert (tmp_path / "upload").read_bytes() == b"abc"
 
 

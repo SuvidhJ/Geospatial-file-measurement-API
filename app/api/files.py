@@ -1,6 +1,6 @@
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Request, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_file_or_404, get_settings
@@ -30,21 +30,43 @@ def _errors(*status_codes: int) -> dict[int | str, dict[str, Any]]:
     summary="Upload and process a geospatial file",
     description=(
         "Accepts a `.zip` containing exactly one Shapefile (`.shp` with `.shx` and `.dbf`; "
-        "`.prj` strongly recommended) or a `.kml` file, and processes it synchronously. "
+        "`.prj` strongly recommended) or a `.kml` file.\n\n"
+        "By default the file is processed before responding (`201`). With `wait=false` "
+        "the upload is accepted with `202` and status `PENDING`, processed in the "
+        "background, and polled with `GET /api/files/{id}/`.\n\n"
         "Bad input is rejected with 400/413/415 and not stored. A file that is accepted "
         "but cannot be processed is stored as FAILED and returned as a 422 error whose "
         "`details.file_id` can be used with the GET endpoints."
     ),
-    responses=_errors(400, 413, 415, 422),
+    responses={
+        202: {"description": "Accepted for background processing (wait=false)."},
+        **_errors(400, 413, 415, 422),
+    },
 )
 def upload_file(
     file: Annotated[UploadFile, File(description="A .zip with one Shapefile, or a .kml file.")],
+    request: Request,
+    response: Response,
+    background_tasks: BackgroundTasks,
     db: DbSession,
     settings: Annotated[Settings, Depends(get_settings)],
+    wait: Annotated[
+        bool, Query(description="Process before responding (true) or in the background (false).")
+    ] = True,
 ) -> FileRead:
     record = processing.accept_upload(db, settings, file.filename or "", file.file)
-    # Processed in-request for simplicity. To move this to a worker, enqueue
-    # processing.process_file(record.id) here and return 202 with status PENDING.
+    if not wait:
+        # The upload is already on disk, so it outlives this request. A Celery/RQ worker
+        # on Redis would replace BackgroundTasks without changing process_in_background.
+        background_tasks.add_task(
+            processing.process_in_background,
+            request.app.state.session_factory,
+            record.id,
+            settings,
+        )
+        response.status_code = 202
+        return FileRead.model_validate(record)
+
     record = processing.process_file(db, record.id, settings)
     if record.status == FileStatus.FAILED:
         raise ProcessingFailedError(

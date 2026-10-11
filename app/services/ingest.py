@@ -3,7 +3,9 @@
 Everything here runs on untrusted input, so each check fails closed with a clear message.
 """
 
+import hashlib
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 from xml.etree.ElementTree import ParseError
@@ -31,9 +33,16 @@ def detect_format(filename: str) -> FileFormat:
         ) from None
 
 
-def save_upload(source: BinaryIO, destination: Path, max_bytes: int) -> int:
-    """Copy the upload to disk in chunks, enforcing the size limit while copying."""
+@dataclass(frozen=True)
+class StoredUpload:
+    size_bytes: int
+    sha256: str
+
+
+def save_upload(source: BinaryIO, destination: Path, max_bytes: int) -> StoredUpload:
+    """Copy the upload to disk in chunks, enforcing the size limit and hashing while copying."""
     written = 0
+    digest = hashlib.sha256()
     with destination.open("wb") as out:
         while chunk := source.read(CHUNK_SIZE):
             written += len(chunk)
@@ -42,10 +51,11 @@ def save_upload(source: BinaryIO, destination: Path, max_bytes: int) -> int:
                     f"Upload exceeds the maximum size of {max_bytes} bytes.",
                     details={"max_upload_bytes": max_bytes},
                 )
+            digest.update(chunk)
             out.write(chunk)
     if written == 0:
         raise InvalidFileError("The uploaded file is empty.")
-    return written
+    return StoredUpload(size_bytes=written, sha256=digest.hexdigest())
 
 
 def validate_content(path: Path, file_format: FileFormat) -> None:

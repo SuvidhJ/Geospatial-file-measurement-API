@@ -5,15 +5,17 @@ before anything is persisted. `process_file` does content-level work and is the 
 function a background worker would call instead of the request handler.
 """
 
+import contextlib
 import logging
 import shutil
+import time
 import uuid
 from collections import Counter
 from pathlib import Path
 from typing import BinaryIO
 
 from shapely.geometry import mapping
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings
 from app.errors import DatasetError
@@ -37,7 +39,7 @@ def accept_upload(db: Session, settings: Settings, filename: str, stream: Binary
     workdir.mkdir(parents=True)
     try:
         stored = workdir / STORED_UPLOAD_NAME[file_format]
-        ingest.save_upload(stream, stored, settings.max_upload_bytes)
+        upload = ingest.save_upload(stream, stored, settings.max_upload_bytes)
         ingest.validate_content(stored, file_format)
         if file_format is FileFormat.SHAPEFILE:
             ingest.safe_extract(
@@ -55,6 +57,8 @@ def accept_upload(db: Session, settings: Settings, filename: str, stream: Binary
         filename=Path(filename).name[:255],
         format=file_format,
         status=FileStatus.PENDING,
+        size_bytes=upload.size_bytes,
+        sha256=upload.sha256,
         storage_path=str(workdir),
     )
     db.add(record)
@@ -66,6 +70,7 @@ def process_file(db: Session, file_id: uuid.UUID, settings: Settings) -> Uploade
     record = db.get_one(UploadedFile, file_id)
     record.status = FileStatus.PROCESSING
     db.commit()
+    started = time.perf_counter()
 
     try:
         dataset = _read_dataset(record)
@@ -75,10 +80,11 @@ def process_file(db: Session, file_id: uuid.UUID, settings: Settings) -> Uploade
             for feature in reader.iter_features(dataset)
         ]
     except DatasetError as exc:
-        return _mark_failed(db, record, str(exc))
+        logger.info("File %s failed: %s", file_id, exc)
+        return _mark_failed(db, record, str(exc), started)
     except Exception:
         logger.exception("Unexpected error while processing file %s", file_id)
-        _mark_failed(db, record, "An unexpected error occurred while processing the file.")
+        _mark_failed(db, record, "An unexpected error occurred while processing the file.", started)
         raise
 
     record.features = features
@@ -90,8 +96,26 @@ def process_file(db: Session, file_id: uuid.UUID, settings: Settings) -> Uploade
     record.crs_assumed = dataset.crs_assumed
     record.warnings = dataset.warnings + ([] if features else ["The file contains no features."])
     record.status = FileStatus.COMPLETED
+    record.processing_time_ms = _elapsed_ms(started)
     db.commit()
+    logger.info(
+        "File %s processed: %d features in %d ms",
+        file_id,
+        record.feature_count,
+        record.processing_time_ms,
+    )
     return record
+
+
+def process_in_background(
+    session_factory: sessionmaker[Session], file_id: uuid.UUID, settings: Settings
+) -> None:
+    """Entry point for deferred processing: runs after the response, so it needs its own
+    session, and has no client to report to; failures are recorded on the file instead."""
+    # Unexpected errors are already logged and recorded as FAILED by process_file, and
+    # there is no request left to report them to.
+    with session_factory() as db, contextlib.suppress(Exception):
+        process_file(db, file_id, settings)
 
 
 def _read_dataset(record: UploadedFile) -> reader.Dataset:
@@ -144,12 +168,17 @@ def _build_feature(
     )
 
 
-def _mark_failed(db: Session, record: UploadedFile, detail: str) -> UploadedFile:
+def _mark_failed(db: Session, record: UploadedFile, detail: str, started: float) -> UploadedFile:
     db.rollback()
     record.status = FileStatus.FAILED
     record.error_detail = detail
+    record.processing_time_ms = _elapsed_ms(started)
     db.commit()
     return record
+
+
+def _elapsed_ms(started: float) -> int:
+    return round((time.perf_counter() - started) * 1000)
 
 
 def delete_file(db: Session, record: UploadedFile) -> None:
