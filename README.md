@@ -18,9 +18,9 @@ difference is UTM's known scale error at this distance from the zone's central m
   reprojected.
 - **Every number is checked.** The projected value (primary, as the brief asks) comes with the
   geodesic value and the percentage difference between them. Tested from 89°S to 89°N, the
-  difference stays under 0.25%. The usual shortcuts are wrong by up to +297% (Web Mercator, at
-  Oslo), +99% (degrees × 111.32 km, at Oslo) and +1,019% (one fixed CRS for every feature)
-  ([accuracy report](#accuracy-validation)).
+  difference stays under 0.25%. The usual shortcuts fall apart away from the equator. For a
+  1 km² plot at Oslo, Web Mercator is +297%, "degrees × 111.32 km" is +99% and one fixed UTM
+  zone for every feature is +25% ([accuracy report](#accuracy-validation)).
 - **Safe with untrusted uploads.** Protection against zip-slip, zip bombs and XXE, streamed size
   limits, and one error body shape everywhere.
 - **Built like a service.** Synchronous *or* background processing, upload SHA-256, request IDs,
