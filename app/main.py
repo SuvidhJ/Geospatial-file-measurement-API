@@ -1,11 +1,13 @@
 import logging
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import files, health
@@ -17,6 +19,7 @@ from app.schemas.errors import ErrorBody, ErrorResponse
 logger = logging.getLogger(__name__)
 
 UPLOAD_PATH = "/api/files/"
+VIEWER_DIR = Path(__file__).parent / "static" / "viewer"
 # Allowance for multipart boundaries and part headers around the file bytes.
 MULTIPART_OVERHEAD_BYTES = 16 * 1024
 
@@ -26,6 +29,8 @@ DESCRIPTION = """
 Upload a **zipped Shapefile** or a **KML** file and get per-feature measurements:
 area for polygons, length for lines, computed in a projected CRS chosen per feature
 and cross-checked against the geodesic value on the WGS84 ellipsoid.
+
+A map viewer built on this API is served at [/viewer/](/viewer/).
 """
 
 
@@ -49,6 +54,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _register_exception_handlers(app)
     app.include_router(files.router)
     app.include_router(health.router)
+    app.mount("/viewer", StaticFiles(directory=VIEWER_DIR, html=True), name="viewer")
+
+    @app.get("/", include_in_schema=False)
+    def root() -> RedirectResponse:
+        return RedirectResponse("/viewer/")
+
     return app
 
 
