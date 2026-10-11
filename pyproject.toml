@@ -12,6 +12,11 @@ classifiers = [
     "Topic :: Scientific/Engineering :: GIS",
 ]
 
+[project.urls]
+Repository = "https://github.com/SuvidhJ/Geospatial-file-measurement-API"
+Issues = "https://github.com/SuvidhJ/Geospatial-file-measurement-API/issues"
+Changelog = "https://github.com/SuvidhJ/Geospatial-file-measurement-API/blob/main/CHANGELOG.md"
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"

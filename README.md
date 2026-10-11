@@ -1,6 +1,6 @@
 # Geospatial File Measurement API
 
-[![CI](https://img.shields.io/badge/CI-ruff%20%C2%B7%20mypy%20%C2%B7%20pytest%20%C2%B7%20docker-informational)](.github/workflows/ci.yml)
+[![CI](https://github.com/SuvidhJ/Geospatial-file-measurement-API/actions/workflows/ci.yml/badge.svg)](https://github.com/SuvidhJ/Geospatial-file-measurement-API/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
@@ -78,6 +78,9 @@ bundle GDAL, GEOS and PROJ, so you don't need to install any system libraries.
 ### Local (virtualenv)
 
 ```bash
+git clone https://github.com/SuvidhJ/Geospatial-file-measurement-API.git
+cd Geospatial-file-measurement-API
+
 python3.11 -m venv .venv
 source .venv/bin/activate           # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
@@ -972,38 +975,42 @@ framework and a bundler would cost more than they add.
 
 ## Learnings
 
-Problems that came up while building this, and what they taught:
+Things that went wrong while I was building this, and what I took away from each:
 
-- **An "ignore hidden files" rule can hide a path-traversal attack.** The first zip-slip test
-  failed: `../../evil.txt` was silently *skipped*, because `".."` starts with a dot. Nothing
-  escaped, but a malicious archive should be rejected loudly, not quietly filtered. The order
-  of checks matters.
-- **Cross-checks only work if both sides measure the same thing.** pyproj's polygon perimeter
-  counts only the exterior ring, while shapely's `length` includes holes. The mismatch only
-  showed up when reading real output for the polygon with a hole (800 m vs 1,000 m), because no
-  test compared perimeters.
-- **Ground truth needs checking too.** A test asserted that Web Mercator inflates area by
-  exactly 1/cos²φ. It failed: the real figure is about 5.9%, not 5.3%, because pseudo-Mercator
-  applies spherical formulas to ellipsoidal latitudes. The expectation was wrong, not the code.
-- **UTM isn't exact even at its centre**, and the size of the effect matters: −0.08% on the
-  central meridian, +0.12–0.14% at Bengaluru.
-- **Shortcuts fail by orders of magnitude, not percent.** One fixed CRS for everything is
-  +1,019% at the equator when the CRS was meant for India.
-- **Merging KML layers creates fake attributes.** Stacking folders gave every placemark nulls
-  for fields that only exist in other folders.
-- **GDAL opens more than you ask it to.** Without a driver restriction, an uploaded "DEM" could
-  be a VRT that points GDAL at other files on the server. Checking the TIFF signature and
-  pinning the GeoTIFF driver closes that door.
-- **Screenshots find bugs that tests don't.** Browser runs showed that popups had dropped the
-  feature's own attributes, and that a longer label broke the drop zone's layout because a
-  `<label>` is inline by default.
-- **Only the real container proves the container.** Every test passed locally, yet the API
-  crash-looped in Docker: rasterio's Linux wheel bundles GDAL but links against the system
-  `libexpat`, which the slim base image no longer ships. The CI stack smoke test exists to catch
-  exactly this class of failure.
-- **Reproducible artefacts need fixed timestamps.** Zip entries carry modification times, so
-  regenerated sample data changed on every run until the archives were written with a fixed
-  date.
+- **An "ignore hidden files" rule can hide a path-traversal attack.** My first zip-slip test
+  failed: `../../evil.txt` was quietly *skipped*, because `".."` starts with a dot. Nothing
+  escaped, but I want a malicious archive rejected loudly, not filtered out without a word. I
+  now run the safety checks before any filtering.
+- **A cross-check only works if both sides measure the same thing.** pyproj's polygon
+  perimeter counts only the exterior ring, while shapely's `length` includes holes. I only
+  noticed when I read the real output for the polygon with a hole (800 m vs 1,000 m), because
+  no test compared perimeters. Now one does.
+- **My ground truth needed checking too.** I wrote a test asserting that Web Mercator inflates
+  area by exactly 1/cos²φ, and it failed. The real figure is about 5.9%, not 5.3%, because
+  pseudo-Mercator applies spherical formulas to ellipsoidal latitudes. My expectation was
+  wrong, not the code.
+- **UTM isn't exact even at its centre**, and I hadn't appreciated how much the effect varies:
+  −0.08% on the central meridian, +0.12–0.14% at Bengaluru. That's why every result carries
+  its geodesic value and the percentage difference.
+- **Shortcuts fail by orders of magnitude, not by a percent or two.** Measuring everything in
+  one CRS meant for India is +1,019% off at the equator. Seeing the actual numbers convinced
+  me a per-feature CRS was worth the extra code.
+- **Merging KML layers creates fake attributes.** When I stacked the folders into one table,
+  every placemark picked up null fields that only existed in other folders. For KML, a null
+  attribute now means "this placemark has no such field", so I leave it out.
+- **GDAL opens more than you ask it to.** Without a driver restriction, an uploaded "DEM"
+  could be a VRT that points GDAL at other files on the server. I check the TIFF signature
+  and pin the GeoTIFF driver to close that door.
+- **Screenshots found bugs my tests didn't.** Looking at the viewer in a real browser showed
+  that popups had lost each feature's own attributes, and that a longer label broke the drop
+  zone's layout because a `<label>` is inline by default.
+- **Only the real container proves the container.** Every test passed on my machine, yet the
+  API crash-looped in Docker: rasterio's Linux wheel bundles GDAL but links against the
+  system `libexpat`, which the slim base image no longer ships. That's why CI builds and
+  smoke-tests the whole Compose stack instead of trusting the unit tests alone.
+- **Reproducible files need fixed timestamps.** Zip entries store modification times, so my
+  regenerated sample data came out different on every run until I wrote the archives with a
+  fixed date.
 
 ---
 
