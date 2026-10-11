@@ -16,8 +16,8 @@ UTM_MIN_LATITUDE = -80.0
 UTM_MAX_LATITUDE = 84.0
 # UTM scale error grows with distance from the zone's central meridian:
 #   k ≈ 0.9996 · (1 + (Δλ·cos φ)² / 2)
-# At 4° from the meridian the area error reaches ≈0.4% at the equator; beyond that we switch
-# projection rather than accept a growing error.
+# At 4° from the meridian the area error reaches ≈0.4% at the equator; beyond that, features
+# are measured in an equal-area projection instead of accepting a growing error.
 MAX_DEGREES_FROM_CENTRAL_MERIDIAN = 4.0
 
 

@@ -17,7 +17,10 @@ from app.errors import DatasetError, FileTooLargeError, InvalidFileError, Unsupp
 from app.models import FileFormat
 
 CHUNK_SIZE = 1024 * 1024
-FORMAT_BY_SUFFIX = {".zip": FileFormat.SHAPEFILE, ".kml": FileFormat.KML}
+FORMAT_BY_SUFFIX = {".zip": FileFormat.SHAPEFILE, ".kml": FileFormat.KML, ".kmz": FileFormat.KMZ}
+ARCHIVE_FORMATS = {FileFormat.SHAPEFILE, FileFormat.KMZ}
+# KML 2.2: a KMZ's main document is doc.kml at the archive root, or else its only .kml file.
+KMZ_MAIN_DOCUMENT = "doc.kml"
 SHAPEFILE_REQUIRED_COMPANIONS = (".shx", ".dbf")
 
 
@@ -28,7 +31,7 @@ def detect_format(filename: str) -> FileFormat:
     except KeyError:
         raise UnsupportedFileTypeError(
             f"Unsupported file type '{suffix or filename}'. "
-            "Upload a .zip containing a Shapefile or a .kml file.",
+            "Upload a .zip containing a Shapefile, a .kml or a .kmz file.",
             details={"supported_extensions": sorted(FORMAT_BY_SUFFIX)},
         ) from None
 
@@ -60,9 +63,9 @@ def save_upload(source: BinaryIO, destination: Path, max_bytes: int) -> StoredUp
 
 def validate_content(path: Path, file_format: FileFormat) -> None:
     """Check the bytes match the extension; the extension alone proves nothing."""
-    if file_format is FileFormat.SHAPEFILE:
+    if file_format in ARCHIVE_FORMATS:
         if not zipfile.is_zipfile(path):
-            raise InvalidFileError("The .zip file is not a valid zip archive.")
+            raise InvalidFileError("The uploaded file is not a valid zip archive.")
     else:
         _validate_kml(path)
 
@@ -155,6 +158,20 @@ def locate_shapefile(root: Path) -> Path:
             f"Shapefile '{_relative(shp, root)}' is missing required file(s): {', '.join(missing)}."
         )
     return shp
+
+
+def locate_kml(root: Path) -> Path:
+    """Find a KMZ's main KML document and check it is safe to parse."""
+    main = root / KMZ_MAIN_DOCUMENT
+    candidates = [main] if main.is_file() else sorted(root.rglob("*.kml"))
+    if len(candidates) != 1:
+        found = ", ".join(_relative(p, root) for p in candidates) or "none"
+        raise DatasetError(f"Expected doc.kml or exactly one .kml file in the KMZ, found: {found}.")
+    try:
+        _validate_kml(candidates[0])
+    except InvalidFileError as exc:
+        raise DatasetError(exc.message) from None
+    return candidates[0]
 
 
 def _relative(path: Path, root: Path) -> str:

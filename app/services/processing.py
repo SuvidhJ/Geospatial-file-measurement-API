@@ -26,7 +26,11 @@ from app.services.measure import measure
 
 logger = logging.getLogger(__name__)
 
-STORED_UPLOAD_NAME = {FileFormat.SHAPEFILE: "upload.zip", FileFormat.KML: "upload.kml"}
+STORED_UPLOAD_NAME = {
+    FileFormat.SHAPEFILE: "upload.zip",
+    FileFormat.KML: "upload.kml",
+    FileFormat.KMZ: "upload.kmz",
+}
 EXTRACTED_DIR = "extracted"
 NULL_GEOMETRY = "None"
 
@@ -41,7 +45,7 @@ def accept_upload(db: Session, settings: Settings, filename: str, stream: Binary
         stored = workdir / STORED_UPLOAD_NAME[file_format]
         upload = ingest.save_upload(stream, stored, settings.max_upload_bytes)
         ingest.validate_content(stored, file_format)
-        if file_format is FileFormat.SHAPEFILE:
+        if file_format in ingest.ARCHIVE_FORMATS:
             ingest.safe_extract(
                 stored,
                 workdir / EXTRACTED_DIR,
@@ -122,6 +126,8 @@ def _read_dataset(record: UploadedFile) -> reader.Dataset:
     workdir = Path(record.storage_path)
     if record.format == FileFormat.KML:
         return reader.read_kml(workdir / STORED_UPLOAD_NAME[FileFormat.KML])
+    if record.format == FileFormat.KMZ:
+        return reader.read_kml(ingest.locate_kml(workdir / EXTRACTED_DIR))
     return reader.read_shapefile(ingest.locate_shapefile(workdir / EXTRACTED_DIR))
 
 

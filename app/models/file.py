@@ -22,6 +22,7 @@ class FileStatus(StrEnum):
 class FileFormat(StrEnum):
     SHAPEFILE = "shapefile"
     KML = "kml"
+    KMZ = "kmz"
 
 
 class UploadedFile(Base):

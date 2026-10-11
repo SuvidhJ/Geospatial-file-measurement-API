@@ -472,3 +472,30 @@ def test_geojson_export_of_failed_file_returns_409(client: TestClient, tmp_path:
     file_id = upload(client, "docs.zip", archive.read_bytes()).json()["error"]["details"]["file_id"]
 
     assert_error(client.get(f"/api/files/{file_id}/geojson/"), 409, "FILE_NOT_READY")
+
+
+def test_upload_kmz(client: TestClient, survey_kml: bytes, tmp_path: Path) -> None:
+    archive = zip_files(
+        tmp_path / "survey.kmz", [("doc.kml", survey_kml), ("files/icon.png", b"\x89PNG")]
+    )
+
+    response = upload(client, "survey.kmz", archive.read_bytes())
+
+    assert response.status_code == 201, response.text
+    assert response.json()["format"] == "kmz"
+    assert response.json()["feature_count"] == 5
+    assert response.json()["crs"] == "EPSG:4326"
+
+
+def test_kmz_without_kml_fails_as_unprocessable(client: TestClient, tmp_path: Path) -> None:
+    archive = zip_files(tmp_path / "empty.kmz", [("files/icon.png", b"\x89PNG")])
+
+    error = assert_error(
+        upload(client, "empty.kmz", archive.read_bytes()), 422, "PROCESSING_FAILED"
+    )
+
+    assert "Expected doc.kml" in error["message"]
+
+
+def test_kmz_that_is_not_a_zip_is_rejected(client: TestClient) -> None:
+    assert_error(upload(client, "fake.kmz", b"<kml></kml>"), 400, "INVALID_FILE")

@@ -32,7 +32,7 @@ def _errors(*status_codes: int) -> dict[int | str, dict[str, Any]]:
     summary="Upload and process a geospatial file",
     description=(
         "Accepts a `.zip` containing exactly one Shapefile (`.shp` with `.shx` and `.dbf`; "
-        "`.prj` strongly recommended) or a `.kml` file.\n\n"
+        "`.prj` strongly recommended), a `.kml` file, or a `.kmz` (zipped KML).\n\n"
         "By default the file is processed before responding (`201`). With `wait=false` "
         "the upload is accepted with `202` and status `PENDING`, processed in the "
         "background, and polled with `GET /api/files/{id}/`.\n\n"
@@ -46,7 +46,9 @@ def _errors(*status_codes: int) -> dict[int | str, dict[str, Any]]:
     },
 )
 def upload_file(
-    file: Annotated[UploadFile, File(description="A .zip with one Shapefile, or a .kml file.")],
+    file: Annotated[
+        UploadFile, File(description="A .zip with one Shapefile, a .kml or a .kmz file.")
+    ],
     request: Request,
     response: Response,
     background_tasks: BackgroundTasks,

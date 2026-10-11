@@ -93,6 +93,7 @@ def main() -> None:
     write_shapefile_zip(parcels(), "bengaluru_parcels")
     write_shapefile_zip(parcels().to_crs(32643), "bengaluru_parcels_utm43n")
     (OUT / "bengaluru_survey.kml").write_text(survey_kml(), encoding="utf-8")
+    zip_files(OUT / "bengaluru_survey.kmz", [("doc.kml", survey_kml().encode())])
     print("Wrote", ", ".join(sorted(p.name for p in OUT.iterdir())))
 
 

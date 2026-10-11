@@ -16,13 +16,17 @@ POINTS = gpd.GeoDataFrame({"name": ["a"]}, geometry=[Point(77.59, 12.97)], crs=4
 
 @pytest.mark.parametrize(
     ("filename", "expected"),
-    [("survey.zip", FileFormat.SHAPEFILE), ("SURVEY.KML", FileFormat.KML)],
+    [
+        ("survey.zip", FileFormat.SHAPEFILE),
+        ("SURVEY.KML", FileFormat.KML),
+        ("survey.kmz", FileFormat.KMZ),
+    ],
 )
 def test_detect_format_accepts_zip_and_kml(filename: str, expected: FileFormat) -> None:
     assert ingest.detect_format(filename) is expected
 
 
-@pytest.mark.parametrize("filename", ["survey.geojson", "survey.kmz", "survey"])
+@pytest.mark.parametrize("filename", ["survey.geojson", "survey.gpx", "survey"])
 def test_detect_format_rejects_other_types(filename: str) -> None:
     with pytest.raises(UnsupportedFileTypeError):
         ingest.detect_format(filename)
@@ -160,3 +164,37 @@ def test_locate_shapefile_requires_companions(tmp_path: Path, missing: str) -> N
 
     with pytest.raises(DatasetError, match=rf"missing required file\(s\): \{missing}"):
         ingest.locate_shapefile(target)
+
+
+def test_locate_kml_prefers_doc_kml_at_root(tmp_path: Path) -> None:
+    kml = kml_document({"Points": [placemark("p", kml_point(77.59, 12.97))]})
+    (tmp_path / "doc.kml").write_text(kml)
+    (tmp_path / "files").mkdir()
+    (tmp_path / "files" / "other.kml").write_text(kml)
+
+    assert ingest.locate_kml(tmp_path) == tmp_path / "doc.kml"
+
+
+def test_locate_kml_accepts_a_single_nested_kml(tmp_path: Path) -> None:
+    (tmp_path / "files").mkdir()
+    (tmp_path / "files" / "survey.kml").write_text(kml_document({}))
+
+    assert ingest.locate_kml(tmp_path).name == "survey.kml"
+
+
+@pytest.mark.parametrize("names", [[], ["a.kml", "b.kml"]])
+def test_locate_kml_requires_exactly_one_document(tmp_path: Path, names: list[str]) -> None:
+    for name in names:
+        (tmp_path / name).write_text(kml_document({}))
+
+    with pytest.raises(DatasetError, match=r"Expected doc\.kml or exactly one \.kml"):
+        ingest.locate_kml(tmp_path)
+
+
+def test_locate_kml_rejects_unsafe_xml_as_dataset_error(tmp_path: Path) -> None:
+    (tmp_path / "doc.kml").write_text(
+        '<?xml version="1.0"?><!DOCTYPE kml [<!ENTITY x "y">]><kml>&x;</kml>'
+    )
+
+    with pytest.raises(DatasetError, match="forbidden XML entities"):
+        ingest.locate_kml(tmp_path)

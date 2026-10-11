@@ -18,12 +18,12 @@ from shapely.geometry.base import BaseGeometry
 
 from app.errors import DatasetError
 from app.services.crs import WGS84
+from app.services.measure import POLYGONAL_TYPES
 
 KML_LAYER_PROPERTY = "kml_layer"
 # LIBKML exposes these rendering hints as columns with sentinel defaults (e.g. -1);
 # they describe how Google Earth draws a placemark, not the feature itself.
 KML_RENDERING_FIELDS = ["tessellate", "extrude", "visibility", "drawOrder", "icon", "altitudeMode"]
-POLYGONAL_TYPES = {"Polygon", "MultiPolygon"}
 
 
 @dataclass
