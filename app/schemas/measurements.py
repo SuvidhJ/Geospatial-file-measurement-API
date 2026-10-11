@@ -135,7 +135,7 @@ class FeatureMeasurement(BaseModel):
                 length_m=_round(feature.length_m, 3),
                 length_km=_round(_scale(feature.length_m, 1 / METRES_PER_KILOMETRE), 6),
                 measurement_crs=feature.measurement_crs,
-                method=feature.measurement_method,
+                method=_method(feature.measurement_method),
                 geodesic=geodesic,
                 difference_pct=_round(feature.difference_pct, 4),
                 warnings=feature.warnings,
@@ -170,6 +170,10 @@ class MeasurementPage(BaseModel):
     offset: int
     summary: MeasurementSummary
     items: list[FeatureMeasurement]
+
+
+def _method(value: str | None) -> MeasurementMethod | None:
+    return MeasurementMethod(value) if value is not None else None
 
 
 def _scale(value: float | None, factor: float) -> float | None:

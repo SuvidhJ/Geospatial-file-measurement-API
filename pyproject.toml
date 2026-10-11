@@ -14,3 +14,20 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.coverage.run]
+source = ["app"]
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+
+[tool.mypy]
+python_version = "3.11"
+files = ["app"]
+strict_optional = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
+# geopandas, pyogrio, shapely and defusedxml ship without complete type stubs.
+ignore_missing_imports = true

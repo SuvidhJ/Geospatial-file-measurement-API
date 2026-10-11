@@ -48,8 +48,8 @@ def summarize(
         select(
             Feature.measurement_status,
             func.count(),
-            func.coalesce(func.sum(Feature.area_m2), 0.0),
-            func.coalesce(func.sum(Feature.length_m), 0.0),
+            func.sum(Feature.area_m2),
+            func.sum(Feature.length_m),
         )
         .where(*_feature_filter(file_id, geometry_type))
         .group_by(Feature.measurement_status)
@@ -58,8 +58,8 @@ def summarize(
     total_area = total_length = 0.0
     for status, count, area, length in db.execute(stmt):
         counts[MeasurementStatus(status)] = count
-        total_area += area
-        total_length += length
+        total_area += area or 0.0
+        total_length += length or 0.0
 
     return MeasurementSummary(
         feature_count=sum(counts.values()),
