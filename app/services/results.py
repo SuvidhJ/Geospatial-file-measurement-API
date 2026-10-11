@@ -28,9 +28,10 @@ def list_features(
     file_id: uuid.UUID,
     *,
     geometry_type: GeometryType | None,
-    limit: int,
+    limit: int | None,
     offset: int,
 ) -> list[Feature]:
+    """Features in file order; limit=None returns all of them."""
     stmt = (
         select(Feature)
         .where(*_feature_filter(file_id, geometry_type))

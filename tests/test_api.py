@@ -6,7 +6,7 @@ import geopandas as gpd
 import pytest
 from fastapi.testclient import TestClient
 from httpx2 import Response
-from shapely.geometry import MultiPolygon, Point, Polygon
+from shapely.geometry import MultiPolygon, Point, Polygon, shape
 
 from app.config import Settings
 from app.main import create_app
@@ -425,3 +425,50 @@ def test_background_failure_is_reported_through_status(client: TestClient, tmp_p
     record = client.get(f"/api/files/{response.json()['id']}/").json()
     assert record["status"] == "FAILED"
     assert "No .shp file found" in record["error_detail"]
+
+
+def test_geojson_export(client: TestClient, uploaded_kml: dict[str, Any]) -> None:
+    response = client.get(f"/api/files/{uploaded_kml['id']}/geojson/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/geo+json"
+    collection = response.json()
+    assert collection["type"] == "FeatureCollection"
+    assert collection["name"] == "survey.kml"
+    assert len(collection["features"]) == 5
+    plot = collection["features"][0]
+    assert plot["id"] == 0
+    assert shape(plot["geometry"]).geom_type == "Polygon"
+    assert plot["properties"]["status"] == "measured"
+    assert plot["properties"]["area_m2"] == pytest.approx(1_000_000, rel=2.5e-3)
+    assert plot["properties"]["measurement_crs"] == "EPSG:32643"
+    assert plot["properties"]["attributes"]["Name"] == "Plot A"
+
+
+def test_geojson_export_filters_by_geometry_type(
+    client: TestClient, uploaded_kml: dict[str, Any]
+) -> None:
+    collection = client.get(
+        f"/api/files/{uploaded_kml['id']}/geojson/", params={"geometry_type": "Point"}
+    ).json()
+
+    assert [f["properties"]["geometry_type"] for f in collection["features"]] == ["Point"]
+
+
+@pytest.mark.filterwarnings("ignore:'crs' was not provided")
+def test_geojson_export_omits_geometry_with_unknown_crs(client: TestClient, tmp_path: Path) -> None:
+    square = Polygon([(776_000, 1_435_000), (776_100, 1_435_000), (776_100, 1_435_100)])
+    archive = shapefile_zip(tmp_path, gpd.GeoDataFrame(geometry=[square]), exclude=(".prj",))
+    file = upload(client, "unknown.zip", archive.read_bytes()).json()
+
+    (feature,) = client.get(f"/api/files/{file['id']}/geojson/").json()["features"]
+
+    assert feature["geometry"] is None
+    assert feature["properties"]["status"] == "skipped"
+
+
+def test_geojson_export_of_failed_file_returns_409(client: TestClient, tmp_path: Path) -> None:
+    archive = zip_files(tmp_path / "docs.zip", [("readme.txt", b"no shapefile here")])
+    file_id = upload(client, "docs.zip", archive.read_bytes()).json()["error"]["details"]["file_id"]
+
+    assert_error(client.get(f"/api/files/{file_id}/geojson/"), 409, "FILE_NOT_READY")

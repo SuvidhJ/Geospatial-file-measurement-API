@@ -1,6 +1,7 @@
 from typing import Annotated, Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, Request, Response, UploadFile
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_file_or_404, get_settings
@@ -9,6 +10,7 @@ from app.errors import FileNotReadyError, ProcessingFailedError
 from app.models import FileStatus, UploadedFile
 from app.schemas.errors import ErrorResponse
 from app.schemas.files import FileList, FileRead
+from app.schemas.geojson import GEOJSON_MEDIA_TYPE, feature_collection
 from app.schemas.measurements import FeatureMeasurement, GeometryType, MeasurementPage
 from app.services import processing, results
 
@@ -114,11 +116,7 @@ def get_measurements(
         bool, Query(description="Include GeoJSON geometries in the response.")
     ] = True,
 ) -> MeasurementPage:
-    if record.status != FileStatus.COMPLETED:
-        raise FileNotReadyError(
-            f"File has no measurements because its status is {record.status}.",
-            details={"file_id": str(record.id), "status": record.status},
-        )
+    _require_completed(record)
     summary = results.summarize(db, record.id, geometry_type=geometry_type)
     features = results.list_features(
         db, record.id, geometry_type=geometry_type, limit=limit, offset=offset
@@ -138,9 +136,42 @@ def get_measurements(
     )
 
 
+@router.get(
+    "/{file_id}/geojson/",
+    summary="Export features and measurements as GeoJSON",
+    description=(
+        "Returns every feature (optionally filtered by `geometry_type`) as an RFC 7946 "
+        "FeatureCollection in EPSG:4326, with the measurement as flat properties and the "
+        "source attributes under `attributes`. Opens directly in QGIS or geojson.io."
+    ),
+    response_class=JSONResponse,
+    responses={200: {"content": {GEOJSON_MEDIA_TYPE: {}}}, **_errors(404, 409)},
+)
+def export_geojson(
+    record: FileRecord,
+    db: DbSession,
+    geometry_type: Annotated[
+        GeometryType | None, Query(description="Only features of this source geometry type.")
+    ] = None,
+) -> JSONResponse:
+    _require_completed(record)
+    features = results.list_features(
+        db, record.id, geometry_type=geometry_type, limit=None, offset=0
+    )
+    return JSONResponse(feature_collection(record, features), media_type=GEOJSON_MEDIA_TYPE)
+
+
 @router.delete(
     "/{file_id}/", status_code=204, summary="Delete a file and its data", responses=_errors(404)
 )
 def delete_file(record: FileRecord, db: DbSession) -> Response:
     processing.delete_file(db, record)
     return Response(status_code=204)
+
+
+def _require_completed(record: UploadedFile) -> None:
+    if record.status != FileStatus.COMPLETED:
+        raise FileNotReadyError(
+            f"File has no measurements because its status is {record.status}.",
+            details={"file_id": str(record.id), "status": record.status},
+        )
