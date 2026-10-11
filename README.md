@@ -5,37 +5,95 @@ and returns **area** for polygons and **length** for lines. Each value is comput
 CRS chosen per feature, and then cross-checked against the exact geodesic value on the WGS84
 ellipsoid.
 
-```
-POST /api/files/                     upload + process
-GET  /api/files/{id}/                file information
-GET  /api/files/{id}/measurements/   per-feature measurements + summary
+![Map viewer showing a measured parcel with a courtyard hole near Whitefield, Bengaluru](docs/viewer.jpg)
+
+*The bundled map viewer, which uses only the public API. Parcel P-002 is a 200 m square with a
+50 m courtyard. It measures 37,552.53 m² in UTM 43N against a geodesic 37,499.86 m²; the 0.14%
+difference is UTM's known scale error at this distance from the zone's central meridian.*
+
+**Highlights**
+
+- **Never measures in degrees.** Each feature is projected to its own UTM zone. An equal-area
+  fallback covers polar and very wide features, and Web Mercator input is detected and
+  reprojected.
+- **Every number is checked.** The projected value (primary, as the brief asks) comes with the
+  geodesic value and the percentage difference between them. Tested from 89°S to 89°N, the
+  difference stays under 0.25%. The usual shortcuts are wrong by up to +297% (Web Mercator, at
+  Oslo), +99% (degrees × 111.32 km, at Oslo) and +1,019% (one fixed CRS for every feature)
+  ([accuracy report](#accuracy-validation)).
+- **Safe with untrusted uploads.** Protection against zip-slip, zip bombs and XXE, streamed size
+  limits, and one error body shape everywhere.
+- **Built like a service.** Synchronous *or* background processing, upload SHA-256, request IDs,
+  GeoJSON export for QGIS, Docker and Compose, and CI that runs ruff, mypy and pytest with a
+  coverage gate and a container smoke test.
+- **148 tests at 98.9% coverage.** The tests use independent ground truth, built by walking
+  geodesics rather than drawn in the projection under test.
+
+## Quick start
+
+```bash
+docker compose up --build
 ```
 
-Main points:
+Then open:
+- <http://localhost:8000/> for the map viewer: drop in `sample_data/bengaluru_parcels.zip`;
+- <http://localhost:8000/docs> for the interactive OpenAPI docs.
 
-- **Never measures in degrees.** Geographic coordinates are projected to the feature's UTM zone.
-  An equal-area fallback covers polar features and very wide ones.
-- **Every measurement is validated.** The projected value (primary, as the brief asks) is
-  reported next to the geodesic value and the percentage difference between them. A warning is
-  raised past a configurable threshold.
-- **Safe on untrusted uploads.** It guards against zip-slip and zip bombs and parses KML in a
-  way that is safe from XXE. Size limits are enforced. Every error uses the same body shape.
-- **Tested against independent ground truth.** 108 tests. Shapes are built by walking geodesics,
-  not drawn in the projection being tested.
+```bash
+curl -F "file=@sample_data/bengaluru_survey.kml" http://localhost:8000/api/files/
+```
 
 ---
 
 ## Contents
 
-- [Setup](#setup)
-- [API](#api)
-- [Architecture](#architecture)
-- [CRS handling](#crs-handling)
-- [Accuracy validation](#accuracy-validation)
-- [Design decisions](#design-decisions)
-- [Known limitations](#known-limitations)
-- [Learnings](#learnings)
-- [Future scope](#future-scope)
+1. [Requirements checklist](#requirements-checklist)
+2. [Setup](#setup)
+3. [API](#api)
+4. [Architecture](#architecture)
+5. [CRS handling](#crs-handling)
+6. [Accuracy validation](#accuracy-validation)
+7. [Map viewer](#map-viewer)
+8. [Engineering quality](#engineering-quality)
+9. [Design decisions](#design-decisions)
+10. [Known limitations](#known-limitations)
+11. [Learnings](#learnings)
+12. [Future scope](#future-scope)
+
+---
+
+## Requirements checklist
+
+Every requirement in the brief, where it is implemented, and the tests that prove it.
+
+| # | Requirement | Implementation | Verified by |
+|---|---|---|---|
+| 1 | Django + DRF **or FastAPI** | FastAPI app factory: [app/main.py](app/main.py) | every API test |
+| 2 | `POST /api/files/` accepts a `.zip` Shapefile and a `.kml` | [app/api/files.py](app/api/files.py), [app/services/ingest.py](app/services/ingest.py) | `test_upload_shapefile_zip_in_nested_folder`, `test_upload_kml_returns_file_record` |
+| 3 | Per feature: **ID/index** | `index` (0-based) + `source_fid` | `test_shapefile_with_prj_keeps_crs_and_fids` |
+| 3 | Per feature: **geometry type** | `geometry_type`, plus `measured_geometry_type` after repair | `test_multipart_and_repaired_geometries` |
+| 3 | Per feature: **geometry** | GeoJSON (RFC 7946, EPSG:4326) with an explicit `geometry_crs` | `test_upload_projected_shapefile_is_measured_natively` |
+| 3 | Per feature: **CRS** | `source_crs` per feature, `crs` per file | `test_crs_label_matches_esri_flavoured_wkt` |
+| 3 | Per feature: **properties** | JSON-safe attributes (dates, numpy types, NaN handled) | `test_feature_properties_are_json_safe` |
+| 3 | Unsupported geometry handled gracefully | `status: unsupported` with a reason; never a 500 | `test_unmeasurable_geometries_are_handled_gracefully` |
+| 4 | Polygon → **area** | `area_m2`, `area_ha` (+ `perimeter_m`): [app/services/measure.py](app/services/measure.py) | `test_one_km_square_near_bengaluru`, `test_polygon_hole_is_subtracted_whatever_its_winding_order` |
+| 4 | LineString → **length** | `length_m`, `length_km` | `test_line_of_known_geodesic_length`, `test_one_degree_of_longitude_at_the_equator` |
+| 4 | Point → no measurement | `status: not_applicable` | `test_measurements_cover_every_geometry_case` |
+| 5 | Geographic CRS (EPSG:4326) handled; **never measure in degrees** | Per-feature UTM / LAEA: [app/services/crs.py](app/services/crs.py) | `test_area_is_never_computed_in_degrees`, `test_utm_accuracy_holds_across_the_globe` |
+| 6 | `GET /api/files/{id}/`: id, filename, feature_count, crs, status | [app/schemas/files.py](app/schemas/files.py) | `test_get_file_matches_upload_response` |
+| 6 | `GET /api/files/{id}/measurements/` | Paginated, filterable, with a summary | `test_measurements_pagination`, `test_measurement_summary` |
+| 7 | README: setup, API, architecture, CRS handling, design decisions | This file | Every response shown was captured from the running app |
+| 8 | Public GitHub repo; learnings; future scope | [Learnings](#learnings), [Future scope](#future-scope) | |
+
+**Beyond the brief:**
+- background processing (`?wait=false`);
+- GeoJSON export;
+- the map viewer;
+- list and delete endpoints;
+- upload hash, size and processing time;
+- request IDs;
+- an accuracy report you can reproduce;
+- mypy and coverage gates in CI.
 
 ---
 
@@ -52,31 +110,31 @@ source .venv/bin/activate           # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 
 uvicorn app.main:create_app --factory --reload
-# Interactive docs: http://localhost:8000/docs
+# Viewer: http://localhost:8000/    Docs: http://localhost:8000/docs
 ```
 
 ### Docker
 
 ```bash
+docker compose up --build                   # or, without Compose:
 docker build -t geospatial-measurement-api .
 docker run --rm -p 8000:8000 -v geoapi-data:/data geospatial-measurement-api
 ```
 
-The image runs as a non-root user, keeps the SQLite database and uploads in the `/data`
-volume, and has a `HEALTHCHECK` on `/health`.
+The image runs as a non-root user, keeps SQLite and uploads in the `/data` volume, and has a
+`HEALTHCHECK` on `/health`.
 
-### Tests and lint
+### Tasks
 
 | Task | `make` | Without `make` (e.g. Windows) |
 |---|---|---|
 | Install | `make install` | `pip install -r requirements-dev.txt` |
 | Run | `make run` | `uvicorn app.main:create_app --factory --reload` |
-| Test | `make test` | `python -m pytest -q` |
-| Lint | `make lint` | `ruff check . && ruff format --check .` |
+| Lint + types + tests | `make check` | `ruff check . && ruff format --check . && mypy && pytest --cov` |
+| Tests with coverage | `make test` | `python -m pytest -q --cov --cov-report=term-missing` |
+| Type check | `make typecheck` | `python -m mypy` |
+| Accuracy report | `make accuracy` | `python -m scripts.accuracy_report` |
 | Regenerate sample data | `make sample-data` | `python -m scripts.make_sample_data` |
-
-CI (GitHub Actions) runs the lint and tests. It then builds the Docker image and smoke-tests it
-by uploading `sample_data/bengaluru_survey.kml` to the running container.
 
 ### Configuration
 
@@ -91,24 +149,32 @@ Every setting can be overridden with a `GEOAPI_` environment variable
 | `GEOAPI_MAX_UNCOMPRESSED_BYTES` | `524288000` (500 MiB) | Zip-bomb limit on extracted bytes |
 | `GEOAPI_MAX_ARCHIVE_MEMBERS` | `200` | Maximum number of files in a zip |
 | `GEOAPI_GEODESIC_WARNING_PCT` | `0.5` | Projected vs geodesic difference that triggers a warning |
+| `GEOAPI_LOG_LEVEL` | `INFO` | Application log level |
+
+The schema is created on startup; there are no migrations yet (see Future scope). After
+upgrading, delete the data directory or volume.
 
 ---
 
 ## API
 
-Interactive OpenAPI docs are served at `/docs`. Every response below was captured from the
-Docker container processing the files in [sample_data/](sample_data/). Those files are
-generated by [scripts/make_sample_data.py](scripts/make_sample_data.py), so their true sizes are
-known by construction.
+Interactive docs are at `/docs`. Every response below was captured from the running app
+processing the files in [sample_data/](sample_data/). Those files are generated by
+[scripts/make_sample_data.py](scripts/make_sample_data.py), so their true sizes are known by
+construction.
 
 | Method | Path | Success | Errors |
 |---|---|---|---|
-| `POST` | `/api/files/` | `201` file record | `400` invalid content, `413` too large, `415` wrong type, `422` processing failed |
+| `POST` | `/api/files/` | `201` file record (`202` with `?wait=false`) | `400` invalid content, `413` too large, `415` wrong type, `422` processing failed |
 | `GET` | `/api/files/` | `200` paginated list (`limit`, `offset`) | `422` bad query |
 | `GET` | `/api/files/{id}/` | `200` file record | `404` |
-| `GET` | `/api/files/{id}/measurements/` | `200` features + summary | `404`, `409` file not COMPLETED, `422` bad query |
+| `GET` | `/api/files/{id}/measurements/` | `200` features + summary | `404`, `409` not COMPLETED, `422` bad query |
+| `GET` | `/api/files/{id}/geojson/` | `200` `application/geo+json` FeatureCollection | `404`, `409` |
 | `DELETE` | `/api/files/{id}/` | `204` | `404` |
 | `GET` | `/health` | `200 {"status":"ok"}` | |
+
+Every response carries an `X-Request-ID` header. A safe client-supplied value is echoed back;
+otherwise one is generated. The same id appears in the server log line for the request.
 
 ### Upload a file
 
@@ -120,7 +186,7 @@ curl -F "file=@sample_data/bengaluru_survey.kml" http://localhost:8000/api/files
 
 ```json
 {
-    "id": "56672a78-907f-4c84-a44b-80fa39ca9e26",
+    "id": "a5fe2f73-eebe-4f51-a15a-204cd7d9d2ee",
     "filename": "bengaluru_survey.kml",
     "format": "kml",
     "status": "COMPLETED",
@@ -134,28 +200,73 @@ curl -F "file=@sample_data/bengaluru_survey.kml" http://localhost:8000/api/files
     },
     "warnings": [],
     "error_detail": null,
-    "created_at": "2026-10-10T19:17:48.169701Z"
+    "size_bytes": 1289,
+    "sha256": "420b751a56ee0f094509bb5c6482f6c9db5a341f9cc5e54019b93b2b91b1acbc",
+    "processing_time_ms": 18,
+    "created_at": "2026-10-11T15:52:19.819787Z"
 }
 ```
 
 A Shapefile is uploaded the same way, as a `.zip`. The `.shp` can be at any depth inside it,
-and `.shx` and `.dbf` must sit next to it:
+and `.shx` and `.dbf` must sit next to it.
+
+#### Background processing
+
+With `?wait=false` the upload is validated and stored, `202` comes back straight away, and
+processing runs after the response:
 
 ```bash
-curl -F "file=@sample_data/bengaluru_parcels.zip" http://localhost:8000/api/files/
+curl -F "file=@sample_data/bengaluru_parcels.zip" "http://localhost:8000/api/files/?wait=false"
 ```
 
-### File information
+`202 Accepted`
 
-```bash
-curl http://localhost:8000/api/files/56672a78-907f-4c84-a44b-80fa39ca9e26/
+```json
+{
+    "id": "2b867234-2fad-4825-b7c2-812ff55c4bff",
+    "filename": "bengaluru_parcels.zip",
+    "format": "shapefile",
+    "status": "PENDING",
+    "feature_count": 0,
+    "crs": null,
+    "crs_assumed": false,
+    "geometry_type_counts": {},
+    "warnings": [],
+    "error_detail": null,
+    "size_bytes": 1404,
+    "sha256": "26e693f974de4abdd2b4abed2de961e78be99269fd21ad9bd1b3a4ec8b585bfa",
+    "processing_time_ms": null,
+    "created_at": "2026-10-11T15:52:19.884593Z"
+}
 ```
 
-`200 OK`: the same body as the upload response above.
+Polling `GET /api/files/2b867234-2fad-4825-b7c2-812ff55c4bff/` a moment later:
+
+```json
+{
+    "id": "2b867234-2fad-4825-b7c2-812ff55c4bff",
+    "filename": "bengaluru_parcels.zip",
+    "format": "shapefile",
+    "status": "COMPLETED",
+    "feature_count": 3,
+    "crs": "EPSG:4326",
+    "crs_assumed": false,
+    "geometry_type_counts": {
+        "Polygon": 3
+    },
+    "warnings": [],
+    "error_detail": null,
+    "size_bytes": 1404,
+    "sha256": "26e693f974de4abdd2b4abed2de961e78be99269fd21ad9bd1b3a4ec8b585bfa",
+    "processing_time_ms": 7,
+    "created_at": "2026-10-11T15:52:19.884593Z"
+}
+```
+
+In background mode a processing failure is reported as `status: "FAILED"` with
+`error_detail`, because there is no longer a request to return a 422 to.
 
 ### Measurements
-
-Query parameters:
 
 | Parameter | Default | Meaning |
 |---|---|---|
@@ -167,14 +278,14 @@ Query parameters:
 The `summary` covers every feature that matches the filter, not just the current page.
 
 ```bash
-curl "http://localhost:8000/api/files/56672a78-907f-4c84-a44b-80fa39ca9e26/measurements/?limit=2&include_geometry=false"
+curl "http://localhost:8000/api/files/a5fe2f73-eebe-4f51-a15a-204cd7d9d2ee/measurements/?limit=2&include_geometry=false"
 ```
 
 `200 OK`
 
 ```json
 {
-    "file_id": "56672a78-907f-4c84-a44b-80fa39ca9e26",
+    "file_id": "a5fe2f73-eebe-4f51-a15a-204cd7d9d2ee",
     "filename": "bengaluru_survey.kml",
     "status": "COMPLETED",
     "crs": "EPSG:4326",
@@ -266,42 +377,6 @@ curl "http://localhost:8000/api/files/56672a78-907f-4c84-a44b-80fa39ca9e26/measu
 }
 ```
 
-A point, with its geometry (`?geometry_type=Point&limit=1`):
-
-```json
-{
-    "index": 2,
-    "source_fid": null,
-    "geometry_type": "Point",
-    "measured_geometry_type": "Point",
-    "repaired": false,
-    "source_crs": "EPSG:4326",
-    "geometry_crs": "EPSG:4326",
-    "properties": {
-        "Name": "GCP-1",
-        "kml_layer": "Ground control points"
-    },
-    "geometry": {
-        "type": "Point",
-        "coordinates": [77.59660850557127, 12.976299959185674]
-    },
-    "measurement": {
-        "status": "not_applicable",
-        "reason": "Points have no area or length.",
-        "area_m2": null,
-        "area_ha": null,
-        "perimeter_m": null,
-        "length_m": null,
-        "length_km": null,
-        "measurement_crs": null,
-        "method": null,
-        "geodesic": null,
-        "difference_pct": null,
-        "warnings": []
-    }
-}
-```
-
 `measurement.status` is one of:
 
 | Status | When |
@@ -310,6 +385,58 @@ A point, with its geometry (`?geometry_type=Point&limit=1`):
 | `not_applicable` | Point/MultiPoint: the brief requires no measurement |
 | `skipped` | Null or empty geometry, or the source CRS is unknown |
 | `unsupported` | Any other type, e.g. GeometryCollection. Reported with a reason, never a 500 |
+
+### GeoJSON export
+
+`GET /api/files/{id}/geojson/` returns all features (optionally filtered by `geometry_type`) as
+an RFC 7946 FeatureCollection with `Content-Type: application/geo+json`. It opens directly in
+QGIS or [geojson.io](https://geojson.io). The measurement fields are flat properties and the
+source attributes sit under `attributes`. One feature from the survey file:
+
+```json
+{
+    "type": "FeatureCollection",
+    "name": "bengaluru_survey.kml",
+    "features": [
+        {
+            "type": "Feature",
+            "id": 1,
+            "geometry": {
+                "type": "LineString",
+                "coordinates": [[77.592, 12.9763], [77.61043402225499, 12.976299346970771]]
+            },
+            "properties": {
+                "index": 1,
+                "source_fid": null,
+                "geometry_type": "LineString",
+                "repaired": false,
+                "status": "measured",
+                "reason": null,
+                "area_m2": null,
+                "area_ha": null,
+                "perimeter_m": null,
+                "length_m": 2001.171,
+                "length_km": 2.001171,
+                "measurement_crs": "EPSG:32643",
+                "method": "projected-utm",
+                "geodesic_area_m2": null,
+                "geodesic_length_m": 2000.0,
+                "difference_pct": 0.0585,
+                "warnings": ["Z values were dropped; measurements are planimetric (2D)."],
+                "attributes": {
+                    "Name": "Haul road (2 km due east)",
+                    "expected": "2.000 km",
+                    "kml_layer": "Haul roads",
+                    "surface": "gravel"
+                }
+            }
+        }
+    ]
+}
+```
+
+GeoJSON coordinates must be WGS84. A feature whose source CRS is unknown is therefore exported
+with `"geometry": null`, rather than at a wrong location.
 
 ### Errors
 
@@ -326,38 +453,19 @@ curl -F "file=@notes.txt" http://localhost:8000/api/files/
 ```
 
 A zip that is valid but contains no Shapefile is **stored as FAILED**. Its id comes back in the
-error, so the record can still be inspected:
+error, so the record can still be inspected (`GET /api/files/{id}/` shows `"status": "FAILED"`
+and the same `error_detail`):
 
 `422 Unprocessable Entity`
 
 ```json
-{"error":{"code":"PROCESSING_FAILED","message":"No .shp file found in the archive. Files found: readme.txt.","details":{"file_id":"8a8d93d7-e3df-497d-838f-75e475c97831"}}}
-```
-
-```bash
-curl http://localhost:8000/api/files/8a8d93d7-e3df-497d-838f-75e475c97831/
-```
-
-```json
-{
-    "id": "8a8d93d7-e3df-497d-838f-75e475c97831",
-    "filename": "docs.zip",
-    "format": "shapefile",
-    "status": "FAILED",
-    "feature_count": 0,
-    "crs": null,
-    "crs_assumed": false,
-    "geometry_type_counts": {},
-    "warnings": [],
-    "error_detail": "No .shp file found in the archive. Files found: readme.txt.",
-    "created_at": "2026-10-10T19:18:00.082277Z"
-}
+{"error":{"code":"PROCESSING_FAILED","message":"No .shp file found in the archive. Files found: readme.txt.","details":{"file_id":"85e53911-6871-42e6-a1a9-50720dca9022"}}}
 ```
 
 Asking for that file's measurements returns `409`:
 
 ```json
-{"error":{"code":"FILE_NOT_READY","message":"File has no measurements because its status is FAILED.","details":{"file_id":"8a8d93d7-e3df-497d-838f-75e475c97831","status":"FAILED"}}}
+{"error":{"code":"FILE_NOT_READY","message":"File has no measurements because its status is FAILED.","details":{"file_id":"85e53911-6871-42e6-a1a9-50720dca9022","status":"FAILED"}}}
 ```
 
 An unknown id (or a malformed one, since ids are opaque) returns `404`:
@@ -374,7 +482,7 @@ An unknown id (or a malformed one, since ids are opaque) returns `404`:
 
 ```
 app/
-  main.py            app factory, router registration, error envelope, upload-size guard
+  main.py            app factory: routers, error envelope, upload-size guard, request ids, viewer
   config.py          settings (pydantic-settings, GEOAPI_* env vars)
   db.py              engine + session factory (SQLite, foreign keys on)
   errors.py          AppError hierarchy -> HTTP status + stable error code
@@ -382,17 +490,20 @@ app/
     files.py         thin routes: parse request, call a service, shape the response
     deps.py          DB session, settings, get-file-or-404
     health.py
-  schemas/           Pydantic response models (with OpenAPI examples)
+  schemas/           Pydantic response models (with OpenAPI examples) + GeoJSON export
   models/            SQLAlchemy ORM: UploadedFile 1-* Feature
   services/
-    ingest.py        type/size/content validation, streamed storage, safe unzip, find the .shp
+    ingest.py        type/size/content validation, streamed storage + SHA-256, safe unzip, find .shp
     reader.py        Shapefile/KML -> GeoDataFrame, missing-CRS policy, geometry repair, JSON-safe props
     crs.py           CRS labelling, measurement-CRS selection, cached transformers
     measure.py       projected measurement + geodesic cross-check
-    processing.py    pipeline orchestration and status transitions
+    processing.py    pipeline orchestration, status transitions, background entry point
     results.py       read-side queries: pagination, filters, SQL summary
-scripts/make_sample_data.py   reproducible sample files
-tests/                        108 tests; fixtures are generated in tmp_path
+  static/viewer/     single-file Leaflet map viewer (no build step)
+scripts/
+  make_sample_data.py   reproducible sample files with sizes known by construction
+  accuracy_report.py    the accuracy table below
+tests/                  148 tests; fixtures are generated in tmp_path
 ```
 
 Routes contain no logic. Services don't know about HTTP, apart from raising typed `AppError`s.
@@ -405,7 +516,7 @@ a database or HTTP.
 flowchart TD
     A["POST /api/files/"] --> B{"extension .zip or .kml?"}
     B -- no --> E415["415 UNSUPPORTED_FILE_TYPE"]
-    B -- yes --> C["stream to data/uploads/ID/ in 1 MiB chunks<br/>count bytes, enforce limit"]
+    B -- yes --> C["stream to data/uploads/ID/ in 1 MiB chunks<br/>count bytes, enforce limit, SHA-256"]
     C -- "too large" --> E413["413 FILE_TOO_LARGE"]
     C -- empty --> E400["400 INVALID_FILE"]
     C --> D{"content matches?<br/>zip: is_zipfile<br/>kml: defusedxml parse, root is kml"}
@@ -414,7 +525,10 @@ flowchart TD
     F -- unsafe --> E400
     F --> G[("UploadedFile: PENDING")]
     D -- kml --> G
-    G --> H["process_file: PROCESSING"]
+    G --> Q{"wait?"}
+    Q -- "false" --> R202["202 PENDING<br/>process after the response"]
+    Q -- "true" --> H["process_file: PROCESSING"]
+    R202 -.-> H
     H --> I{"read dataset"}
     I -- zip --> J["find exactly one .shp + .shx + .dbf<br/>read with pyogrio"]
     I -- kml --> K["read every folder layer with LIBKML<br/>stack them, tag kml_layer"]
@@ -464,10 +578,10 @@ flowchart TD
 
 A degree of longitude is 111.32 km at the equator and 0 km at the poles. A degree of latitude
 is also slightly different everywhere, because the Earth is an ellipsoid. So "square degrees" is
-not a unit of area. The 1 km² test square near Bengaluru measures about `8e-5` in square degrees,
-and that number means nothing on its own. Coordinates have to be put into a metric, projected
-CRS first, as the brief requires. The test
-`test_area_is_never_computed_in_degrees` would fail if that ever regressed.
+not a unit of area. The [accuracy report](#accuracy-validation) shows that treating degrees as
+fixed 111.32 km squares overstates a 1 km² plot at Oslo by 99%. Coordinates have to be put into
+a metric, projected CRS first, as the brief requires. `test_area_is_never_computed_in_degrees`
+would fail if that ever regressed.
 
 ### How the measurement CRS is chosen ([app/services/crs.py](app/services/crs.py))
 
@@ -484,19 +598,17 @@ Why each rule:
   or a local grid that the surveyor chose on purpose. Reprojecting it into another zone would
   only add error.
 - **Mercator is the exception.** EPSG:3857 is projected, but it inflates areas by roughly
-  1/cos²(lat). For our Bengaluru test square it would overstate the area by **5.9%** (asserted in
-  `test_web_mercator_input_is_not_measured_natively`). Mercator-family sources are therefore
-  reprojected, with a warning. Transverse Mercator (which is what UTM is) and Oblique Mercator are
-  not affected.
-- **UTM per feature.** UTM is conformal, EPSG-coded and familiar to every surveyor. Its
-  scale factor is 0.9996 on the central meridian and grows to about 1.001 at the zone edge. That
-  keeps the area error under about 0.2% inside the zone. Choosing per feature, not per file,
-  means a file that spans several zones is still measured correctly everywhere.
+  1/cos²(lat): +5.9% at Bengaluru and +297% at Oslo. Mercator-family sources are therefore
+  reprojected, with a warning. Transverse Mercator (which is what UTM is) and Oblique Mercator
+  are not affected.
+- **UTM per feature.** UTM is conformal, EPSG-coded and familiar to every surveyor. Its scale
+  factor is 0.9996 on the central meridian and grows to about 1.001 at the zone edge. That keeps
+  the area error under about 0.2% inside the zone. Choosing per feature, not per file, matters:
+  measuring everything in one fixed UTM zone is off by +25% at Oslo when that zone is Bengaluru's.
 - **The 4° rule.** UTM scale error grows with the square of the distance from the central
   meridian (k ≈ 0.9996·(1 + (Δλ·cos φ)²/2)). Allowing features to reach 4° from it (1° into the
   neighbouring zone) caps the area error at about 0.4% at the equator, and less at higher
-  latitudes. Beyond that, the code
-  switches to LAEA, which preserves area exactly at any size.
+  latitudes. Beyond that, the code switches to LAEA, which preserves area exactly at any size.
 - **Poles.** UTM is undefined beyond 84°N and 80°S, so LAEA is used there too.
 - **Axis order.** EPSG:4326 is formally *(lat, lon)*. Every transformer is built with
   `always_xy=True`, so coordinates stay *(lon, lat)* as GeoJSON and shapely expect.
@@ -524,6 +636,8 @@ Two details had to be right for the geodesic values to be correct:
 
 ## Accuracy validation
 
+### Sample data (from the running app)
+
 The sample features are built by walking geodesics of known length on the ellipsoid. This makes
 their size independent of any projection. All three Bengaluru sites are in UTM zone 43N, whose
 central meridian is 75°E.
@@ -540,35 +654,94 @@ What the numbers show:
 
 - **The geodesic values match the intended sizes** to within 0.002%. A "square" walked along
   geodesics doesn't close perfectly on a curved surface, so its last side is slightly short.
-  The geodesic column is the exact area of the polygon as stored.
 - **The UTM error follows the theory.** All three sites are about 2.6–2.75° east of the central
   meridian, where UTM's scale factor is about 1.0006. Areas scale with k², so they come out about
-  0.12–0.14% high. The figure grows with distance from 75°E: Cubbon Park < Electronic City <
-  Whitefield. Length scales with k, not k², so the road is off by about half as much (0.06%).
-- The same 1 km square moved to 75°E, the central meridian, measures **−0.0800%**. That is
-  exactly UTM's built-in 0.9996² scale. (Obtained by running `measure()` directly.)
+  0.12–0.14% high, and the figure grows with distance from 75°E. Length scales with k, not k²,
+  so the road is off by about half as much.
 - `bengaluru_parcels_utm43n.zip` holds the same parcels already in EPSG:32643. It returns
   identical areas with `method: "native"`, confirming that the native path and the
   reprojection path agree.
 
-All of these differences are well inside the 0.5% warning threshold. Surveyors who need the
-best possible number for a feature can read `measurement.geodesic`.
+### Around the world, compared with common shortcuts
 
-### Test coverage of the CRS logic
+`make accuracy` ([scripts/accuracy_report.py](scripts/accuracy_report.py)) builds a 1 km² plot
+(or a large box) at each site and reports each method's error against the geodesic area. Output
+of the latest run:
 
-[tests/test_measure.py](tests/test_measure.py) and [tests/test_crs.py](tests/test_crs.py) cover:
+| Site | Measured in | This service | Web Mercator | Fixed UTM 43N | Degrees × 111.32 km |
+|---|---|---|---|---|---|
+| Equator, on a central meridian (3°E) | EPSG:32631 | -0.080% | +0.674% | +1018.921% | +0.675% |
+| Equator, 2.9° from the central meridian | EPSG:32631 | +0.179% | +0.674% | +723.497% | +0.675% |
+| Bengaluru (77.59°E, 12.97°N) | EPSG:32643 | +0.117% | +5.948% | +0.117% | +3.243% |
+| Oslo (10.75°E, 59.91°N) | EPSG:32632 | -0.056% | +296.617% | +25.473% | +98.823% |
+| Ushuaia (68.30°W, 54.80°S) | EPSG:32719 | -0.075% | +200.215% | +13.399% | +73.075% |
+| Svalbard, 85°N (beyond UTM) | local LAEA | -0.000% | +13001.177% | +0.491% | +1040.835% |
+| Wide feature, 8.5° × 1° near India | local LAEA | -0.134% | +5.391% | +0.184% | +2.892% |
 
-- a 1 km square at Bengaluru and on the central meridian;
-- a 5 km line;
-- one degree of longitude at the equator (geodesic 111,319.49 m);
-- a polygon with a hole (with matching winding, which a naive approach gets wrong);
-- native metres, international feet and US survey feet (EPSG:2227);
-- Web Mercator;
-- a polar feature (LAEA);
-- a feature too wide for UTM (LAEA);
-- the southern hemisphere (EPSG:327zz);
-- axis order;
-- the degrees guard.
+How to read it:
+- **This service** stays within ±0.18% everywhere.
+- **The −0.080% on a central meridian** is exactly UTM's built-in 0.9996² scale.
+- **Each shortcut** is fine in one place and badly wrong elsewhere.
+- **The wide feature's −0.134%** comes from how its edges are interpreted, not from projection
+  error (see Known limitations). Fixed UTM 43N happens to be close there only because that box
+  sits in zone 43.
+
+### Accuracy tests
+
+The tests below run in CI on every push.
+
+- [tests/test_measure.py](tests/test_measure.py) asserts accuracy across a **grid of 24 sites**
+  (eight latitudes from 79.5°S to 83.5°N × three positions across a zone) and at four polar
+  sites.
+- It also covers:
+  - one degree of longitude at the equator (geodesic 111,319.49 m);
+  - polygons with holes, with either winding order;
+  - native metres, international feet and US survey feet (EPSG:2227);
+  - Web Mercator input;
+  - axis order;
+  - the degrees guard.
+
+---
+
+## Map viewer
+
+`/viewer/` (and `/`, which redirects there) serves a single HTML file,
+[app/static/viewer/index.html](app/static/viewer/index.html). You can drop a file in and see
+every feature on an OpenStreetMap basemap:
+- colour shows the measurement status;
+- clicking a feature shows its projected and geodesic values, the CRS it was measured in,
+  warnings and source attributes;
+- recent uploads are listed, and `?file=<id>` links can be shared.
+
+It deliberately uses **only the public API** (`POST /api/files/`, `GET …/measurements/`,
+`GET …/geojson/`), so it doubles as a working example of a client.
+
+- **No build step.** Vanilla JS and Leaflet 1.9.4 from a CDN, pinned with Subresource Integrity
+  hashes.
+- **Untrusted text is never parsed as HTML.** KML names and attributes come from uploaded files,
+  so the page only ever sets them with `textContent`. A headless-browser check with a placemark
+  named `<img src=x onerror=…>` showed it as plain text, and no script ran.
+- It was checked end to end in headless Chromium: upload, map, popups, error display and
+  shareable links. The screenshot above comes from that run.
+
+---
+
+## Engineering quality
+
+| Check | Tool | Gate |
+|---|---|---|
+| Tests | pytest (148 tests, about 4 s) | must pass |
+| Coverage | pytest-cov | ≥ 95% enforced (currently 98.9%) |
+| Types | mypy with `disallow_untyped_defs` | no errors |
+| Lint and format | ruff | no findings |
+| Container | Docker build + smoke upload in CI | must succeed |
+
+- **Test data** is generated in `tmp_path` by [tests/factories.py](tests/factories.py), so every
+  test documents its own input. The committed sample files are generated by a script too.
+- **Operations:** every request is logged with its method, path, status, duration and request
+  id. Each processed file logs its feature count and processing time, which is also returned
+  as `processing_time_ms`.
+- **Commits** are one per phase or fix, with conventional messages.
 
 ---
 
@@ -582,20 +755,15 @@ best possible number for a feature can read `measurement.geodesic`.
   in tests.
 - Django would win with a back-office UI, or with GeoDjango plus PostGIS as the main store.
 
-**Synchronous processing, behind one function.**
-- `POST` processes in the request because the files here are small. A 2,000-polygon Shapefile
-  processed in 0.58 s locally (Windows, in-process test client). Synchronous processing also
-  means a client gets its measurements in one call.
-- All content work lives in `processing.process_file(db, file_id, settings)`, and the route
-  marks the one place where it would be queued instead.
-- Moving to FastAPI `BackgroundTasks`, or Celery/RQ on Redis, is a small, contained change, but
-  it is more than one line:
-  - `POST` returns `202` with `status: PENDING`;
-  - the worker needs its own DB session, not the request's;
-  - the upload already sits on disk under a server-generated id, so it outlives the request;
-  - clients poll `GET /api/files/{id}/` instead of reading a `422`, since failures surface as
-    `status: FAILED`.
-- The `PENDING → PROCESSING → COMPLETED/FAILED` statuses already exist for this reason.
+**Synchronous by default, background on request.**
+- `POST` processes in the request by default, so a client gets results in one call, and the
+  files here are small. A 2,000-polygon Shapefile processed in 0.58 s locally.
+- `?wait=false` returns `202` and hands `processing.process_in_background` to FastAPI's
+  `BackgroundTasks`. That function opens its own DB session, because the request's session is
+  gone by then. The upload is already on disk under a server-generated id, so it outlives the
+  request.
+- The production step is a real queue: Celery or RQ on Redis calling the same function, so work
+  survives restarts and scales across processes. Only the enqueue line changes.
 
 **SQLite rather than PostGIS.**
 - One file, zero setup, and enough for this workload.
@@ -605,7 +773,7 @@ best possible number for a feature can read `measurement.geodesic`.
   site?), spatial indexes, or concurrent writers. SQLAlchemy keeps that move contained.
 
 **Per-feature UTM, rather than one CRS per file, pure geodesic, or LAEA everywhere.**
-- *One CRS per file* breaks for files spanning several zones, or a whole state.
+- *One CRS per file* breaks for files spanning several zones (see the "Fixed UTM 43N" column).
 - *Pure geodesic* would be the most accurate, but the brief explicitly asks for a projected CRS,
   so geodesic is kept as validation.
 - *LAEA everywhere* would preserve area at any size and needs no zone logic. It loses because
@@ -665,6 +833,17 @@ best possible number for a feature can read `measurement.geodesic`.
 - Before GDAL sees the file, it is parsed with `defusedxml`, which rejects entity declarations
   (XXE and billion-laughs attacks).
 
+**GeoJSON export as its own endpoint.**
+- The measurements endpoint is built for API clients: paginated, with a summary.
+- GIS tools want a complete FeatureCollection with flat properties.
+- Two shapes for two audiences, both generated from the same `FeatureMeasurement` model, so the
+  rounding and values are identical.
+
+**A viewer with no front-end framework.**
+- One HTML file, about 275 lines including its CSS, with no build step and no node_modules.
+- It is a demo and a reference client, not a product, so React plus a bundler would cost more
+  than it adds.
+
 **Numbers are rounded at the API edge.** The database keeps full precision. Responses round to
 0.01 m² and 1 mm, which is already finer than any survey input can justify.
 
@@ -688,9 +867,13 @@ best possible number for a feature can read `measurement.geodesic`.
   measured natively. The geodesic warning flags them; the code doesn't fix them.
 - **GeometryCollections are not measured,** even when they contain polygons. They are reported
   as `unsupported`.
+- **Background mode runs in-process.** If the server restarts mid-task, the file stays
+  `PENDING` or `PROCESSING`. A Redis-backed queue with retries fixes this.
+- **The GeoJSON export is not paginated,** so very large files produce large responses.
+- **The viewer needs internet access** for OpenStreetMap tiles and the Leaflet CDN.
 - **One Shapefile per zip; no KMZ.**
-- **Synchronous processing** ties up a worker for the duration of an upload, and SQLite allows
-  one writer at a time. Both are fine at this scale, and both are listed under Future scope.
+- **SQLite allows one writer at a time.** That's fine at this scale; PostGIS or Postgres is the
+  next step.
 - UTM's special zones for Norway and Svalbard are ignored. This is harmless, because the zone
   is only used as a measurement CRS.
 
@@ -712,14 +895,16 @@ best possible number for a feature can read `measurement.geodesic`.
   1/cos²φ. The test failed: it's about 5.9%, not 5.3%, because pseudo-Mercator applies
   spherical formulas to ellipsoidal latitudes. I changed the expectation, not the code.
 - **UTM isn't exact even at its centre.** Measuring against geodesic values made this concrete:
-  −0.08% on the central meridian, +0.12–0.14% at Bengaluru. The error depends on where the site
-  sits in its zone.
+  −0.08% on the central meridian, +0.12–0.14% at Bengaluru.
+- **The shortcuts are worse than I expected.** I knew one fixed CRS for everything was a
+  compromise. The accuracy report put a number on it: +1,019% at the equator, when the CRS was
+  meant for India.
 - **Merging KML layers creates fake attributes.** Stacking folders gave every placemark nulls
-  for fields that only exist in other folders. That's harmless for a table, but wrong for a
-  per-feature properties object.
+  for fields that only exist in other folders.
 - **Formats limit what tests can generate.** DBF has no datetime type: GDAL wrote my timestamp
-  column as a string. I tested date handling on a GeoDataFrame instead of pretending the
-  round-trip worked.
+  column as a string, so I tested date handling another way.
+- **Looking at the UI found what tests didn't.** Driving the viewer in a headless browser showed
+  that popups had dropped the feature's own attributes, which a GIS user would expect to see.
 
 ---
 
@@ -727,17 +912,17 @@ best possible number for a feature can read `measurement.geodesic`.
 
 - **PostGIS** with GiST spatial indexes, for spatial queries across files ("which parcels
   intersect this haul road?") and native geometry storage.
-- **Async workers with Redis** (Celery or RQ). `POST` returns `202`, a worker calls
-  `process_file`, and progress and failures are reported through the status field.
+- **A Redis-backed worker queue** (Celery or RQ) in place of in-process `BackgroundTasks`:
+  retries, survives restarts, scales horizontally. The worker calls the existing
+  `process_in_background`.
+- **Surface area and volume** from a DEM or drone point cloud, which is what stockpile and
+  terrain analytics actually need.
 - **More formats:** GeoPackage, GeoJSON, KMZ and DXF. pyogrio already reads most of them; the
   work is in validation and tests.
 - **Object storage** (S3/GCS) for uploads, with pre-signed upload URLs so large files bypass
   the API.
-- **Surface area and volume** from a DEM or drone point cloud, which is what stockpile and
-  terrain analytics actually need.
-- **Map preview:** a small Leaflet or MapLibre page that draws a file's features coloured by
-  measurement status.
 - **Auth and multi-tenancy:** API keys or OAuth, with files scoped per organisation.
-- **Large-file streaming:** read features in batches (pyogrio supports Arrow streams) and write
-  them in bulk, instead of holding one GeoDataFrame.
+- **Large-file streaming:** read features in batches (pyogrio supports Arrow streams), insert in
+  bulk, and stream the GeoJSON export.
+- **De-duplication** using the stored SHA-256: return the existing result for a re-upload.
 - **Database migrations** with Alembic, once the schema starts to evolve.

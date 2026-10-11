@@ -12,7 +12,7 @@ class FileRead(BaseModel):
         json_schema_extra={
             "examples": [
                 {
-                    "id": "56672a78-907f-4c84-a44b-80fa39ca9e26",
+                    "id": "a5fe2f73-eebe-4f51-a15a-204cd7d9d2ee",
                     "filename": "bengaluru_survey.kml",
                     "format": "kml",
                     "status": "COMPLETED",
@@ -22,7 +22,10 @@ class FileRead(BaseModel):
                     "geometry_type_counts": {"Polygon": 1, "LineString": 1, "Point": 3},
                     "warnings": [],
                     "error_detail": None,
-                    "created_at": "2026-10-10T19:17:48.169701Z",
+                    "size_bytes": 1289,
+                    "sha256": "420b751a56ee0f094509bb5c6482f6c9db5a341f9cc5e54019b93b2b91b1acbc",
+                    "processing_time_ms": 18,
+                    "created_at": "2026-10-11T15:52:19.819787Z",
                 }
             ]
         },

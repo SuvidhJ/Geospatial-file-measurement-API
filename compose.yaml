@@ -1,0 +1,14 @@
+services:
+  api:
+    build: .
+    image: geospatial-measurement-api
+    ports:
+      - "8000:8000"
+    volumes:
+      - geoapi-data:/data
+    environment:
+      GEOAPI_LOG_LEVEL: INFO
+    restart: unless-stopped
+
+volumes:
+  geoapi-data:
