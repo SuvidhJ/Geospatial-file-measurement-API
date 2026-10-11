@@ -1,4 +1,7 @@
 import logging
+import re
+import time
+import uuid
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -24,6 +27,9 @@ VIEWER_DIR = Path(__file__).parent / "static" / "viewer"
 MULTIPART_OVERHEAD_BYTES = 16 * 1024
 
 HTTP_ERROR_CODES = {404: "NOT_FOUND", 405: "METHOD_NOT_ALLOWED"}
+# A client-supplied request id is only echoed and logged if it is short and plain, so it
+# cannot be used to forge log lines.
+SAFE_REQUEST_ID = re.compile(r"[A-Za-z0-9._-]{1,64}")
 
 DESCRIPTION = """
 Upload a **zipped Shapefile** or a **KML** file and get per-feature measurements:
@@ -37,6 +43,10 @@ A map viewer built on this API is served at [/viewer/](/viewer/).
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
     settings.upload_dir.mkdir(parents=True, exist_ok=True)
+    # No-op when the host (uvicorn, pytest) has already configured logging.
+    logging.basicConfig(
+        level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
 
     app = FastAPI(
         title="Geospatial File Measurement API",
@@ -51,6 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.session_factory = create_session_factory(settings.resolved_database_url)
 
     _register_upload_size_guard(app, settings.max_upload_bytes)
+    _register_request_id(app)
     _register_exception_handlers(app)
     app.include_router(files.router)
     app.include_router(health.router)
@@ -89,6 +100,27 @@ def _register_upload_size_guard(app: FastAPI, max_upload_bytes: int) -> None:
                 )
                 return error_response(exc.status_code, exc.code, exc.message, exc.details)
         return await call_next(request)
+
+
+def _register_request_id(app: FastAPI) -> None:
+    @app.middleware("http")
+    async def add_request_id(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        supplied = request.headers.get("x-request-id", "")
+        request_id = supplied if SAFE_REQUEST_ID.fullmatch(supplied) else uuid.uuid4().hex
+        started = time.perf_counter()
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        logger.info(
+            "%s %s -> %d in %.1f ms [request_id=%s]",
+            request.method,
+            request.url.path,
+            response.status_code,
+            (time.perf_counter() - started) * 1000,
+            request_id,
+        )
+        return response
 
 
 def _register_exception_handlers(app: FastAPI) -> None:

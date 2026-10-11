@@ -29,3 +29,22 @@ def test_root_redirects_to_viewer(client: TestClient) -> None:
 
     assert response.status_code == 307
     assert response.headers["location"] == "/viewer/"
+
+
+def test_response_carries_a_generated_request_id(client: TestClient) -> None:
+    request_id = client.get("/health").headers["x-request-id"]
+
+    assert len(request_id) == 32
+
+
+def test_safe_client_request_id_is_echoed(client: TestClient) -> None:
+    response = client.get("/health", headers={"X-Request-ID": "survey-42.retry_1"})
+
+    assert response.headers["x-request-id"] == "survey-42.retry_1"
+
+
+def test_unsafe_client_request_id_is_replaced(client: TestClient) -> None:
+    response = client.get("/health", headers={"X-Request-ID": "x\tforged log line"})
+
+    assert response.headers["x-request-id"] != "x\tforged log line"
+    assert len(response.headers["x-request-id"]) == 32

@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     max_uncompressed_bytes: int = 500 * 1024 * 1024
     max_archive_members: int = 200
     geodesic_warning_pct: float = 0.5
+    log_level: str = "INFO"
 
     @property
     def upload_dir(self) -> Path:
