@@ -27,7 +27,7 @@
          margin: 20px 0 8px; }
     p.hint { color: var(--muted); margin: 0 0 12px; }
     #drop {
-      border: 2px dashed var(--border); border-radius: 8px; padding: 20px; text-align: center;
+      display: block; border: 2px dashed var(--border); border-radius: 8px; padding: 20px; text-align: center;
       cursor: pointer; color: var(--muted);
     }
     #drop.over { border-color: var(--measured-line); color: var(--measured-line); }
@@ -45,6 +45,9 @@
     .legend li { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
     .swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
     .warning { color: var(--skipped); }
+    .button { display: inline-block; padding: 6px 12px; border: 1px solid var(--border);
+              border-radius: 6px; cursor: pointer; background: var(--bg); }
+    .button:hover { border-color: var(--measured-line); }
     .leaflet-popup-content table { min-width: 220px; }
     @media (max-width: 720px) {
       body { flex-direction: column; }
@@ -70,6 +73,14 @@
     <h2>Summary</h2>
     <table id="summary-table"></table>
     <p><a id="geojson-link" href="#" download>Download GeoJSON</a></p>
+    <h2>Stockpile volumes</h2>
+    <p class="hint">Add a DEM (GeoTIFF in a projected CRS with metre units) to get cut, fill and
+      3D surface area for every polygon.</p>
+    <label class="button">
+      <input id="dem-input" type="file" accept=".tif,.tiff" hidden>
+      Choose DEM…
+    </label>
+    <table id="volume-table"></table>
   </section>
 
   <h2>Legend</h2>
@@ -103,6 +114,8 @@
     attribution: "&copy; OpenStreetMap contributors",
   }).addTo(map);
   let featureLayer = null;
+  let currentFileId = null;
+  let volumesByIndex = new Map();
 
   // Every call goes through the public API; errors arrive in the API's error envelope.
   async function api(path, options) {
@@ -157,6 +170,7 @@
         : `${number(properties.difference_pct, 4)} %`],
       ["Measured in", properties.measurement_crs],
       ["Method", properties.method],
+      ...volumeRows(volumesByIndex.get(properties.index)),
       ...properties.warnings.map((warning) => ["Warning", warning]),
       // The feature's own attributes from the source file, after the measurement.
       ...Object.entries(properties.attributes).map(([key, value]) => [key, String(value)]),
@@ -164,8 +178,45 @@
     return fillTable(document.createElement("table"), rows);
   }
 
+  function volumeRows(volume) {
+    if (!volume) return [];
+    return [
+      ["Cut", `${number(volume.cut_volume_m3)} m³`],
+      ["Fill", `${number(volume.fill_volume_m3)} m³`],
+      ["Surface (3D)", `${number(volume.surface_area_m2)} m²`],
+      ["Base elevation", `${number(volume.base_elevation_m)} m`],
+      ...volume.warnings.map((warning) => ["Warning", warning]),
+    ];
+  }
+
+  async function computeVolumes(dem) {
+    showMessage(`Computing volumes from ${dem.name}…`);
+    const form = new FormData();
+    form.append("dem", dem);
+    try {
+      const report = await api(`/api/files/${currentFileId}/volumes/`, { method: "POST", body: form });
+      volumesByIndex = new Map(
+        report.items.filter((item) => item.measured).map((item) => [item.index, item]),
+      );
+      fillTable(document.getElementById("volume-table"), [
+        ["DEM", `${report.dem.crs}, ${report.dem.cell_size_m[0]} m cells`],
+        ["Cut", `${number(report.totals.cut_volume_m3)} m³`],
+        ["Fill", `${number(report.totals.fill_volume_m3)} m³`],
+        ["Net", `${number(report.totals.net_volume_m3)} m³`],
+        ...report.items.filter((item) => !item.measured)
+          .map((item) => [`Feature ${item.index}`, item.reason]),
+      ]);
+      showMessage(volumesByIndex.size ? "Volumes added to the polygon popups." : "No polygons to measure.");
+    } catch (error) {
+      showMessage(error.message, true);
+    }
+  }
+
   async function loadFile(fileId) {
     const file = await api(`/api/files/${fileId}/`);
+    currentFileId = file.id;
+    volumesByIndex = new Map();
+    document.getElementById("volume-table").replaceChildren();
     history.replaceState(null, "", `?file=${file.id}`);
     document.getElementById("details").hidden = false;
     fillTable(document.getElementById("file-table"), [
@@ -253,6 +304,12 @@
       await loadRecentFiles();
     }
   }
+
+  const demInput = document.getElementById("dem-input");
+  demInput.addEventListener("change", () => {
+    if (demInput.files[0]) computeVolumes(demInput.files[0]);
+    demInput.value = "";
+  });
 
   const drop = document.getElementById("drop");
   const input = document.getElementById("file-input");
