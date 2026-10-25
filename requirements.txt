@@ -6,7 +6,7 @@ python-multipart==0.0.32
 sqlalchemy==2.1.4
 alembic==1.20.0
 geopandas==1.2.0
-pandas==3.0.6
+pandas==3.1.0
 numpy==2.4.6
 pyogrio==0.13.0
 shapely==2.2.0
